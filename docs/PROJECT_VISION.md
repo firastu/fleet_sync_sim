@@ -2,70 +2,73 @@
 
 ## North star
 
-FleetSyncSim exists to explore software architectures for:
+FleetSyncSim explores software architectures for:
 
-> Sovereign PNT, mapping, navigation, and cooperative autonomy for robots.
+> **Sovereign positioning, mapping, navigation, and cooperative autonomy
+> for robots.**
 
-"Sovereign" does not mean rejecting useful external systems.
+"Sovereign" does not mean avoiding external systems.
 
-It means that essential robot capabilities should not contain unnecessary
-hard runtime dependencies on infrastructure outside the autonomous system.
+It means that essential autonomous capabilities should not contain unnecessary
+hard runtime dependencies on infrastructure outside the robot or fleet.
 
-A robot should degrade gracefully when GNSS, cloud services, map servers,
-control stations, or peer connectivity become unavailable.
+External positioning, maps, control stations, and network infrastructure may
+improve capability, but their temporary loss should produce controlled
+degradation rather than immediate system collapse.
 
 ---
 
-# Capability pillars
+## Capability pillars
 
-## 1. Sovereign maps and navigation
+### 1. Locally controlled maps and navigation
 
 Robots should be able to operate from locally available map data and locally
 executed planning algorithms.
 
-Target architecture:
+Conceptually:
 
-    geographic/map data
+    source geographic data
+            ↓
+       map pipeline
             ↓
       local map model
             ↓
       routing/planning
             ↓
-      robot navigation
+          robot
 
-Core operation must not require an online map or routing provider.
+Runtime navigation should not inherently depend on a cloud map or routing
+provider.
 
 ---
 
-## 2. Resilient positioning and navigation
+### 2. Resilient positioning and navigation
 
-GNSS is a useful positioning source, not an assumed permanent dependency.
+GNSS is one potential positioning source, not an assumed permanent dependency.
 
-Long-term positioning may combine:
+Long-term experiments may combine:
 
     GNSS
     IMU
     wheel odometry
     visual odometry
     LiDAR odometry
-    map matching
-    environmental features
-            ↓
-      state estimation
-            ↓
-       pose + velocity
-       + uncertainty
+    environmental/map matching
+             ↓
+       state estimation
+             ↓
+    pose + velocity + uncertainty
 
-When GNSS disappears, navigation quality may degrade, but position should not
-immediately become undefined.
+When an absolute positioning source disappears, the system should model
+degrading certainty rather than instantaneous loss of all positional knowledge.
 
 ---
 
-## 3. Local world models
+### 3. Robot-local world models
 
-Each robot maintains its own knowledge.
+Every robot maintains its own knowledge.
 
-The simulator distinguishes:
+The architecture distinguishes:
 
     simulation ground truth
 
@@ -73,60 +76,63 @@ from:
 
     robot-local belief
 
-Robots should eventually reason about:
+Robot-local state may eventually contain:
 
 - static map information;
-- dynamic obstacles;
+- dynamic map changes;
 - observations;
 - provenance;
 - information age;
 - pose estimates;
 - uncertainty.
 
+Temporary disagreement between robots is expected in a distributed system.
+
 ---
 
-## 4. Direct robot-to-robot cooperation
+### 4. Peer-to-peer cooperation
 
-Robots should eventually be capable of exchanging useful information directly.
+Robots should eventually be able to exchange useful state directly.
 
-Potential information includes:
+Possible information includes:
 
 - map deltas;
 - obstacle observations;
 - pose estimates and uncertainty;
 - landmarks;
-- mission/route intentions;
-- health/status information.
+- route or mission intent;
+- health and status.
 
-The architecture must not require:
+Local cooperation must not fundamentally require:
 
     Robot -> Cloud -> Robot
 
-for local cooperation.
+A command station may assist or aggregate information, but should not be a
+mandatory intermediary for robot-to-robot cooperation.
 
 ---
 
-## 5. Graceful degradation
+### 5. Graceful degradation
 
-Loss of one capability should not necessarily collapse the whole system.
+The system should explicitly study degraded modes.
 
-Examples:
+Example:
 
-    GNSS lost
+    GNSS unavailable
         ↓
     dead reckoning / local sensing / map matching
         ↓
-    uncertainty increases
+    uncertainty grows
         ↓
     autonomy adapts
 
-and:
+Likewise:
 
-    V2V connection lost
+    V2V unavailable
         ↓
     robots continue independently
         ↓
-    observations remain local
+    knowledge diverges
         ↓
     connectivity returns
         ↓
@@ -134,40 +140,60 @@ and:
 
 ---
 
-# Long-term system model
+## Long-term conceptual stack
 
-                     Mission / Autonomy
-                            |
-                     Route + Planning
-                            |
-                +-----------+-----------+
-                |                       |
-           Map System             Localization / PNT
-                |                       |
-         offline maps               GNSS
-         dynamic state              IMU
-         map matching               odometry
-         map merging                perception
-                |                       |
-                +-----------+-----------+
-                            |
-                    Local World Model
-                            |
-                      V2V Cooperation
-                     /       |       \
-               map delta    pose    observations
-                            |
-                   Communication Layer
-                            |
-                         Robots
+                 Mission / Autonomy
+                        |
+                 Route + Planning
+                        |
+            +-----------+-----------+
+            |                       |
+        Map System             Localization / PNT
+            |                       |
+      offline maps                  GNSS
+      dynamic state                 IMU
+      map matching                  odometry
+      map merging                   perception
+            |                       |
+            +-----------+-----------+
+                        |
+                Local World Model
+                        |
+                  V2V Cooperation
+                 /       |       \
+          map deltas    pose    observations
+                        |
+                Communication Layer
+                        |
+                      Robots
 
 ---
 
-# Important scope rule
+## What FleetSyncSim is today
 
-This document describes direction, not current implementation scope.
+The current simulator does not attempt to implement this complete stack.
 
-A capability becomes implementable only when promoted into
-`CURRENT_MILESTONE.md` or explicitly requested.
+Its first foundational problem is:
 
-See the roadmaps and research documents for possible future approaches.
+> **Distributed robot-local map knowledge under unreliable communication.**
+
+This establishes several prerequisites for later sovereign-autonomy work:
+
+- local knowledge instead of global shared state;
+- deterministic simulation;
+- unreliable peer communication;
+- partitions;
+- reconciliation;
+- autonomous replanning;
+- reproducible scenario execution.
+
+Future capabilities must be introduced incrementally and only when promoted
+into the active milestone.
+
+---
+
+## Guiding principle
+
+> A capability should continue locally where reasonably possible when an
+> external service disappears, and the system should make degradation
+> observable rather than hiding it.

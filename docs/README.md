@@ -2,30 +2,38 @@
 
 FleetSyncSim documentation has different authority levels.
 
-| Document | Role | Authority |
+| Location | Purpose | Authority |
 |---|---|---|
-| `../AGENTS.md` | AI/contributor engineering rules | normative |
-| `CURRENT_MILESTONE.md` | currently permitted implementation scope | normative |
-| `design_decisions/` | accepted architectural decisions | normative |
-| `architecture/` | current system contracts | normative |
-| `PROJECT_VISION.md` | long-term direction | directional |
-| `roadmaps/` | planned evolution | directional |
-| `research/` | literature notes and experiments | non-normative |
+| `../AGENTS.md` | Contributor / coding-agent rules | normative |
+| `CURRENT_MILESTONE.md` | Current implementation scope | normative |
+| `design_decisions/` | Accepted architectural contracts | normative |
+| architecture documentation | Description of current system | normative where stated |
+| `PROJECT_VISION.md` | Long-term direction | directional |
+| roadmaps | Possible evolution | directional |
+| research documents | Literature and exploratory notes | non-normative |
+| tooling documents | Development/tool integration guidance | non-normative |
 
-## Important
+## Implementation flow
 
-Research material must never be interpreted as an implementation request.
+Research and future ideas do not directly become code.
 
-The normal path is:
-
-    Research idea
-         ↓
+    Research / idea
+          ↓
     engineering question
-         ↓
-    experiment / discussion
-         ↓
-    ADR if architecture changes
-         ↓
+          ↓
+    experiment / design
+          ↓
+    ADR if an architectural contract is required
+          ↓
     CURRENT_MILESTONE
-         ↓
+          ↓
     implementation
+
+## For coding agents
+
+Read `../AGENTS.md` first.
+
+`CURRENT_MILESTONE.md` defines normal implementation scope.
+
+Do not implement a feature solely because it appears in a vision, roadmap,
+research, or tooling document.
