@@ -51,9 +51,14 @@ agreed after M1:
    only path from truth to robot knowledge, with unchanged-fact
    suppression in the runner; `observe_edge` remains a low-level testing
    primitive.
-3. #12 — map importer (OSM PBF → BaseMap + debug GeoJSON; activates
-   docs/geospatial.md G1) and trace → GeoJSON exporters (G2).
-4. #13 — interactive console over the runner.
+3. #12A — geographic map foundation + OSM import (ADR-012: topology
+   and geometry are separate map concerns; the importer produces
+   BaseMap = Graph + MapGeometry, WGS84 side data used by outputs,
+   never by planning);
+4. #12B — geospatial output adapters: BaseMap debug GeoJSON and
+   trace → GeoJSON export (docs/geospatial.md G1/G2), built as pure
+   functions of (map, trace), never coupled into the simulator;
+5. #13 — interactive console over the runner.
 
 Scope guard for M2: same determinism discipline as M1 — every behavior
 is a pure function of (scenario, resolved seed); no threads, no wall
@@ -95,9 +100,9 @@ clock, no sensor noise models before #11 defines them.
 
 ## Current objective
 
-M2, item by item (see above). #10 and #11 are complete. Next: #12 map
-importer (OSM PBF → BaseMap + debug GeoJSON; activates
-docs/geospatial.md G1) and trace → GeoJSON exporters (G2).
+M2, item by item (see above). #10 and #11 are complete; ADR-012 is
+accepted. Next: #12A geographic map foundation + OSM import, then #12B
+geospatial output adapters.
 
 ---
 
