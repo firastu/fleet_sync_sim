@@ -25,8 +25,8 @@ enum class EdgeStatus : std::uint8_t {
 struct EdgeDynamicState {
     EdgeStatus status = EdgeStatus::Open;
     common::Tick observed_at{};         // simulation tick of the observation
-    common::RobotId source{};           // who observed it
-    std::uint64_t source_sequence = 0;  // sequence number within source's delta stream
+    common::RobotId source{};           // who observed it (robot or station)
+    common::SequenceNumber source_sequence{};  // within source's delta stream, >= 1
     double confidence = 1.0;            // sensor confidence, in [0, 1] (producer-clamped)
 
     // Note: field-wise comparison; with NaN confidences (never expected)

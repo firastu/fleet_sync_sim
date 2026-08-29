@@ -11,6 +11,7 @@ namespace {
 
 using fleet::common::EdgeId;
 using fleet::common::RobotId;
+using fleet::common::SequenceNumber;
 using fleet::common::Tick;
 using fleet::map::DynamicMapOverlay;
 using fleet::map::EdgeDynamicState;
@@ -42,7 +43,7 @@ TEST_F(MapViewTest, BlockedEdgeIsNotTraversable) {
                                         .status = EdgeStatus::Blocked,
                                         .observed_at = Tick{5000},
                                         .source = RobotId{1},
-                                        .source_sequence = 1,
+                                        .source_sequence = SequenceNumber{1},
                                         .confidence = 0.9,
                                     }));
     const MapView view{grid_.base, overlay_};
@@ -60,7 +61,7 @@ TEST_F(MapViewTest, OpenObservationKeepsBaseCost) {
                                         .status = EdgeStatus::Open,
                                         .observed_at = Tick{100},
                                         .source = RobotId{2},
-                                        .source_sequence = 3,
+                                        .source_sequence = SequenceNumber{3},
                                         .confidence = 0.5,
                                     }));
     const MapView view{grid_.base, overlay_};

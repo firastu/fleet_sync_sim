@@ -4,12 +4,14 @@ add_library(fleet::common ALIAS fleet_common)
 target_include_directories(fleet_common INTERFACE
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 
-# Immutable map core: graph, base map, dynamic overlay, composed view.
+# Immutable map core: graph, base map, dynamic overlay, composed view,
+# delta reconciliation.
 add_library(fleet_map STATIC
   map/graph.cpp
   map/base_map.cpp
   map/dynamic_overlay.cpp
-  map/map_view.cpp)
+  map/map_view.cpp
+  map/map_reconciler.cpp)
 add_library(fleet::map ALIAS fleet_map)
 target_include_directories(fleet_map PUBLIC
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)

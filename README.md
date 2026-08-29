@@ -7,8 +7,9 @@ control station is unreachable.
 
 **Status: early Milestone 1** — the deterministic, single-threaded reference
 (Stage 0). Currently implemented: the map core (immutable `BaseMap`, CSR
-`Graph`, per-participant `DynamicMapOverlay`, composed `MapView`) and a
-deterministic `AStarPlanner` over `MapView`. See the
+`Graph`, per-participant `DynamicMapOverlay`, composed `MapView`),
+sequenced `MapDelta` reconciliation, and a deterministic `AStarPlanner`
+over `MapView`. See the
 [roadmap](#roadmap) and the [design records](docs/design_decisions/).
 
 ## The engineering problem
@@ -73,6 +74,7 @@ labs/            (upcoming) intentionally broken concurrency examples
 - [ADR-001: Immutable base map with per-participant dynamic overlays](docs/design_decisions/ADR-001-immutable-base-map.md)
 - [ADR-002: Deterministic single-threaded reference first](docs/design_decisions/ADR-002-single-threaded-reference.md)
 - [ADR-003: Deterministic planner tie-breaking contract](docs/design_decisions/ADR-003-planner-determinism.md)
+- [ADR-004: Sequenced MapDelta reconciliation](docs/design_decisions/ADR-004-map-delta-reconciliation.md)
 
 ## Research
 

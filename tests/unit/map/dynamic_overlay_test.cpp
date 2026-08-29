@@ -14,6 +14,7 @@ namespace {
 using fleet::common::EdgeId;
 using fleet::common::OverlayVersion;
 using fleet::common::RobotId;
+using fleet::common::SequenceNumber;
 using fleet::common::Tick;
 using fleet::map::DynamicMapOverlay;
 using fleet::map::EdgeDynamicState;
@@ -25,7 +26,7 @@ EdgeDynamicState blocked_observation(Tick at, std::uint64_t sequence, double con
         .status = EdgeStatus::Blocked,
         .observed_at = at,
         .source = RobotId{1},
-        .source_sequence = sequence,
+        .source_sequence = SequenceNumber{sequence},
         .confidence = confidence,
     };
 }
@@ -54,7 +55,7 @@ TEST_F(DynamicOverlayTest, ApplyStoresStateAndBumpsVersion) {
     EXPECT_EQ(stored.status, EdgeStatus::Blocked);
     EXPECT_EQ(stored.observed_at, Tick{5000});
     EXPECT_EQ(stored.source, RobotId{1});
-    EXPECT_EQ(stored.source_sequence, 7U);
+    EXPECT_EQ(stored.source_sequence, SequenceNumber{7});
     EXPECT_DOUBLE_EQ(stored.confidence, 0.9);
 
     EXPECT_EQ(overlay_.tracked_count(), 1U);
@@ -84,7 +85,7 @@ TEST_F(DynamicOverlayTest, OpenObservationsAreTrackedToo) {
         .status = EdgeStatus::Open,
         .observed_at = Tick{200},
         .source = RobotId{2},
-        .source_sequence = 1,
+        .source_sequence = fleet::common::SequenceNumber{1},
         .confidence = 0.4,
     };
     ASSERT_TRUE(overlay_.apply(ab_, open));

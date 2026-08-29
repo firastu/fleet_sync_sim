@@ -13,6 +13,7 @@ struct EdgeIdTag {};
 struct RobotIdTag {};
 struct MapVersionTag {};
 struct OverlayVersionTag {};
+struct SequenceNumberTag {};
 
 // Dense index into a Graph's node table. Issued by Graph::Builder.
 using NodeId = StrongType<NodeIdTag, std::uint32_t>;
@@ -24,5 +25,11 @@ using RobotId = StrongType<RobotIdTag, std::uint8_t>;
 using MapVersion = StrongType<MapVersionTag, std::uint32_t>;
 // Monotonic counter of state changes applied to a DynamicMapOverlay.
 using OverlayVersion = StrongType<OverlayVersionTag, std::uint32_t>;
+// Counter ordering a participant's events within one (source, edge)
+// stream; starts at 1, and 0 is reserved as the reconciler's "nothing
+// processed yet" watermark. Producers may allocate from one source-global
+// counter — a stronger optional policy. Stable for one execution;
+// restart/session epochs are deferred (ADR-004).
+using SequenceNumber = StrongType<SequenceNumberTag, std::uint64_t>;
 
 }  // namespace fleet::common

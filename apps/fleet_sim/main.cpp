@@ -18,6 +18,8 @@
 #include "fleet/common/time.hpp"
 #include "fleet/map/dynamic_overlay.hpp"
 #include "fleet/map/graph.hpp"
+#include "fleet/map/map_delta.hpp"
+#include "fleet/map/map_reconciler.hpp"
 #include "fleet/map/map_view.hpp"
 #include "fleet/planning/a_star_planner.hpp"
 #include "fleet/planning/route.hpp"
@@ -57,6 +59,22 @@ std::string_view status_name(fleet::map::EdgeStatus status) {
     return status == fleet::map::EdgeStatus::Open ? "OPEN" : "BLOCKED";
 }
 
+std::string_view decision_name(fleet::map::ReconcileDecision decision) {
+    if (decision == fleet::map::ReconcileDecision::Applied) {
+        return "APPLIED";
+    }
+    if (decision == fleet::map::ReconcileDecision::Duplicate) {
+        return "DUPLICATE";
+    }
+    if (decision == fleet::map::ReconcileDecision::Stale) {
+        return "STALE";
+    }
+    if (decision == fleet::map::ReconcileDecision::Dominated) {
+        return "DOMINATED";
+    }
+    return "REJECTED_CONFLICT";
+}
+
 void run() {
     const fleet::app::DemoMap demo = fleet::app::build_demo_map();
     const fleet::map::Graph& graph = demo.base.graph();
@@ -85,19 +103,60 @@ void run() {
     std::cout << std::format("mission: A -> D\ninitial route: {}\n\n",
                              format_route(initial, graph));
 
-    // Observation at tick 5000 blocks an edge that is on the initial route.
+    // Observation at tick 5000 blocks an edge that is on the initial
+    // route. It is turned into a MapDelta and goes through the same
+    // reconciliation path a remotely received delta would (ADR-004);
+    // overlay.apply() remains the low-level storage primitive beneath it.
     const EdgeId blocked = edge_for(demo, "B", "C");
-    std::cout << "[5000] observation: edge B-C blocked"
-                 " (source=1 sequence=7 confidence=0.90)\n";
-    if (!overlay.apply(blocked, fleet::map::EdgeDynamicState{
-                                    .status = fleet::map::EdgeStatus::Blocked,
-                                    .observed_at = Tick{5000},
-                                    .source = RobotId{1},
-                                    .source_sequence = 7,
-                                    .confidence = 0.9,
-                                })) {
-        throw std::runtime_error("demo invariant violated: blocking B-C must change the overlay");
-    }
+    const fleet::map::MapDelta observation{
+        blocked,
+        fleet::map::EdgeDynamicState{
+            .status = fleet::map::EdgeStatus::Blocked,
+            .observed_at = Tick{5000},
+            .source = RobotId{1},
+            .source_sequence = fleet::common::SequenceNumber{7},
+            .confidence = 0.9,
+        },
+    };
+    fleet::map::MapReconciler reconciler{graph.edge_count()};
+
+    std::cout << "[5000] local observation: edge B-C BLOCKED"
+                 " (delta source=1 seq=7)\n";
+    std::cout << std::format("reconcile: decision={}\n",
+                             decision_name(reconciler.reconcile(observation, overlay)));
+
+    // Re-delivery hazards. The unreliable network arrives in a later
+    // commit; these exercise reconciliation determinism directly.
+    std::cout << std::format("duplicate re-delivery: decision={}\n",
+                             decision_name(reconciler.reconcile(observation, overlay)));
+
+    const fleet::map::MapDelta stale{
+        blocked,
+        fleet::map::EdgeDynamicState{
+            .status = fleet::map::EdgeStatus::Blocked,
+            .observed_at = Tick{4990},
+            .source = RobotId{1},
+            .source_sequence = fleet::common::SequenceNumber{6},
+            .confidence = 0.9,
+        },
+    };
+    std::cout << std::format("stale re-delivery (seq=6): decision={}\n",
+                             decision_name(reconciler.reconcile(stale, overlay)));
+
+    // New valid event from another source whose observation is older than
+    // the winner's: processed (progression advances) but dominated.
+    const fleet::map::MapDelta dominated{
+        blocked,
+        fleet::map::EdgeDynamicState{
+            .status = fleet::map::EdgeStatus::Open,
+            .observed_at = Tick{4500},
+            .source = RobotId{2},
+            .source_sequence = fleet::common::SequenceNumber{1},
+            .confidence = 0.8,
+        },
+    };
+    std::cout << std::format("older cross-source observation (source=2 tick=4500): decision={}\n",
+                             decision_name(reconciler.reconcile(dominated, overlay)));
 
     std::cout << std::format("route invalidated: current route uses edge B-C = {}\n",
                              initial.uses_edge(blocked) ? "true" : "false");
@@ -118,7 +177,7 @@ void run() {
             "confidence={:.2}\n",
             edge.value(), graph.node(base_edge.a).name, graph.node(base_edge.b).name,
             status_name(state.status), state.observed_at.value, state.source.value(),
-            state.source_sequence, state.confidence);
+            state.source_sequence.value(), state.confidence);
     }
 }
 

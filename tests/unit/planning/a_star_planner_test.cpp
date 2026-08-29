@@ -30,6 +30,7 @@ using fleet::common::MapVersion;
 using fleet::common::NodeId;
 using fleet::common::OverlayVersion;
 using fleet::common::RobotId;
+using fleet::common::SequenceNumber;
 using fleet::common::Tick;
 using fleet::map::BaseMap;
 using fleet::map::DynamicMapOverlay;
@@ -69,7 +70,7 @@ protected:
             .status = EdgeStatus::Blocked,
             .observed_at = Tick{5000},
             .source = RobotId{1},
-            .source_sequence = sequence,
+            .source_sequence = SequenceNumber{sequence},
             .confidence = 0.9,
         };
     }

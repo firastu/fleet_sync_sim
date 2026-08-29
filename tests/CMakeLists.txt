@@ -18,6 +18,7 @@ add_executable(fleet_unit_tests
   unit/map/base_map_test.cpp
   unit/map/dynamic_overlay_test.cpp
   unit/map/map_view_test.cpp
+  unit/map/map_reconciler_test.cpp
   unit/planning/a_star_planner_test.cpp)
 target_include_directories(fleet_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 target_link_libraries(fleet_unit_tests PRIVATE fleet::planning GTest::gtest_main)
