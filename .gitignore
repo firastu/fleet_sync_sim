@@ -13,3 +13,6 @@ compile_commands.json
 
 # OS
 .DS_Store
+
+# docs/
+research/
