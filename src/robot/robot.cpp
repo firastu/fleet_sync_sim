@@ -1,9 +1,11 @@
 #include "fleet/robot/robot.hpp"
 
+#include <cassert>
 #include <limits>
 #include <optional>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace fleet::robot {
 
@@ -66,6 +68,21 @@ ObservationResult Robot::observe(common::EdgeId edge, map::EdgeStatus status, co
 
 map::ReconcileDecision Robot::receive(const map::MapDelta& delta) {
     return reconcile_and_maybe_replan(delta).decision;
+}
+
+std::size_t Robot::resynchronize() {
+    if (!sink_) {
+        return 0;
+    }
+    // tracked_edges() is sorted (deterministic); each winner is re-emitted
+    // with its original identity, so remote reconciliation is idempotent.
+    const std::vector<common::EdgeId> edges = overlay_.tracked_edges();
+    for (const common::EdgeId edge : edges) {
+        const map::EdgeDynamicState* state = overlay_.find(edge);
+        assert(state != nullptr && "Robot::resynchronize: tracked edge missing state");
+        sink_(map::MapDelta{edge, *state});
+    }
+    return edges.size();
 }
 
 Robot::ReconcileOutcome Robot::reconcile_and_maybe_replan(const map::MapDelta& delta) {

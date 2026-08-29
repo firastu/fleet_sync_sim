@@ -33,6 +33,9 @@ Currently implemented:
   - loss;
   - duplication;
   - emergent reordering;
+- directed link state and partitions;
+- `ControlStation` fleet knowledge aggregation;
+- reconnect synchronization by idempotent re-announcement;
 - autonomous robot-local knowledge and rerouting.
 
 See:

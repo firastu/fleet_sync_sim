@@ -93,6 +93,16 @@ public:
     // A delta received from the transport. Returns the local decision.
     map::ReconcileDecision receive(const map::MapDelta& delta);
 
+    // State synchronization for reconnects and late joiners: re-emits the
+    // robot's current knowledge winners through the sink, in ascending
+    // EdgeId order, with their ORIGINAL event identity (source, sequence,
+    // observation time unchanged). Receivers that already know a fact
+    // suppress it as Duplicate; receivers that missed it Apply it —
+    // ADR-004 idempotence makes re-announcement safe. This is explicit
+    // state sync driven by scenario policy, not gossip of individually
+    // received deltas. Returns the number of deltas emitted.
+    std::size_t resynchronize();
+
     [[nodiscard]] common::RobotId id() const noexcept { return id_; }
     [[nodiscard]] const Mission& mission() const noexcept { return mission_; }
     [[nodiscard]] const planning::Route& current_route() const noexcept { return route_; }

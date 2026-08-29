@@ -326,4 +326,27 @@ TEST_F(RobotTest, ThrowingSinkDoesNotRollBackCommittedObservation) {
     EXPECT_EQ(emitted.size(), 1U);
 }
 
+TEST_F(RobotTest, ResynchronizeEmitsCurrentKnowledgeWithOriginalIdentity) {
+    Robot robot = make_robot_a_mission('A', 'D');
+    const EdgeId x = edge_id("F", "G");
+    const EdgeId y = edge_id("K", "L");
+    const auto first = robot.observe(x, EdgeStatus::Blocked, Tick{5000});
+    const auto second = robot.observe(y, EdgeStatus::Blocked, Tick{5100});
+    ASSERT_EQ(emitted_.size(), 2U);
+    emitted_.clear();
+
+    // Re-announcement carries the ORIGINAL identity of each winner.
+    ASSERT_EQ(robot.resynchronize(), 2U);
+    ASSERT_EQ(emitted_.size(), 2U);
+    EXPECT_EQ(emitted_.front(), first.delta);
+    EXPECT_EQ(emitted_.back(), second.delta);
+
+    // A receiver that already knows a fact suppresses it as Duplicate
+    // (ADR-004 idempotence) — here the emitter itself.
+    for (const MapDelta& reannouncement : emitted_) {
+        EXPECT_EQ(robot.receive(reannouncement), ReconcileDecision::Duplicate);
+    }
+    EXPECT_EQ(robot.overlay().version(), fleet::common::OverlayVersion{2});  // unchanged
+}
+
 }  // namespace

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "fleet/common/time.hpp"
@@ -24,8 +25,11 @@ using ReceiveHandler = std::function<void(EndpointId from, const map::MapDelta& 
 // Simulator-side diagnostics for one logical send(). `delivery_ticks`
 // lists the ticks of the scheduled copies in *scheduling* order, not
 // arrival order (a duplicate copy may arrive before the nominal first
-// copy). Empty when the transmission was dropped.
+// copy). Empty when the transmission was dropped. `link_down` marks a
+// deterministic connectivity drop (no RNG consumed); `dropped` marks a
+// sampled packet loss. The two are mutually exclusive.
 struct SendResult {
+    bool link_down = false;
     bool dropped = false;
     std::vector<common::Tick> delivery_ticks;  // 0, 1 or 2 entries
 
@@ -66,11 +70,19 @@ struct SendResult {
 // iterated to make decisions.
 //
 // Endpoints are permanent in Stage 0: registered once via
-// add_endpoint(), no unregister/offline concept (that arrives with
-// partition/link-state work). The destination handler is resolved and
+// add_endpoint(), no unregister/offline concept (endpoint lifecycle
+// arrives with later work). The destination handler is resolved and
 // copied at SEND time — registrations never change, so delivery-time
 // lookup would add no semantics. send() to an unknown destination throws
 // std::invalid_argument immediately; duplicate registration also throws.
+//
+// Connectivity (ADR-008): links are DIRECTED per (from -> to)
+// transmission path and up by default. A down link makes send() a
+// deterministic drop (SendResult::link_down, no RNG consumed).
+// Connectivity is evaluated at send time ONLY: deliveries already
+// scheduled are never interrupted — there is no per-hop interruption
+// model. A partition is expressed by disabling both directions
+// explicitly; symmetry is scenario policy, not hidden state.
 //
 // Delivery handlers execute as EventQueue effects: exceptions propagate
 // with ADR-005 semantics (no catch, no retry, no conversion to loss).
@@ -92,6 +104,12 @@ public:
     // permanent in Stage 0).
     void add_endpoint(EndpointId endpoint, ReceiveHandler on_receive);
 
+    // Directed connectivity for the (from -> to) transmission path;
+    // up by default. Affects NEW sends only (see class comment).
+    void set_link_state(EndpointId from, EndpointId to, bool up);
+
+    [[nodiscard]] bool is_link_up(EndpointId from, EndpointId to) const noexcept;
+
     // Enqueues one transmission into the simulated network, sampling all
     // outcomes now. Returns diagnostics (ticks of the scheduled copies).
     // Precondition: `to` is a registered endpoint.
@@ -104,11 +122,28 @@ private:
     [[nodiscard]] common::Tick sample_latency();
     [[nodiscard]] common::Tick delivery_tick_after(common::Tick latency) const;
 
+    // Directed transmission path (from -> to).
+    struct LinkKey {
+        EndpointId from{};
+        EndpointId to{};
+        bool operator==(const LinkKey&) const = default;
+    };
+
+    struct LinkKeyHash {
+        std::size_t operator()(const LinkKey& key) const noexcept {
+            return (static_cast<std::size_t>(key.from.value()) << 8) |
+                   static_cast<std::size_t>(key.to.value());
+        }
+    };
+
     simulation::EventQueue& queue_;
     NetworkConfig config_;
     simulation::DeterministicRng rng_;
     std::uint64_t latency_span_;  // max - min + 1, precomputed
     std::unordered_map<EndpointId, ReceiveHandler> endpoints_;
+    // Down (from -> to) paths only; absent means up. Exact lookup only,
+    // never iterated, so no iteration order can influence behavior.
+    std::unordered_set<LinkKey, LinkKeyHash> down_links_;
 };
 
 }  // namespace fleet::network

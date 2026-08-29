@@ -379,4 +379,96 @@ TEST(NetworkSimulatorTest, ScheduledDeliveryDoesNotDependOnNetworkSimulatorLifet
     EXPECT_EQ(received.front().sequence, sent.state.source_sequence);
 }
 
+TEST(NetworkSimulatorTest, LinkDownDropsDeterministically) {
+    EventQueue queue;
+    NetworkSimulator network{
+        queue, NetworkConfig{.min_latency = Tick{80}, .max_latency = Tick{80}}, /*seed=*/1};
+    bool received_any = false;
+    network.add_endpoint(kReceiver, [&received_any](EndpointId, const MapDelta&) {
+        received_any = true;
+    });
+
+    EXPECT_TRUE(network.is_link_up(kSender, kReceiver));
+    network.set_link_state(kSender, kReceiver, false);
+    EXPECT_FALSE(network.is_link_up(kSender, kReceiver));
+
+    const auto result =
+        network.send(kSender, kReceiver, blocked_delta(EdgeId{4}, RobotId{1}, SequenceNumber{7},
+                                                        Tick{0}));
+    EXPECT_TRUE(result.link_down);
+    EXPECT_FALSE(result.dropped);  // mutually exclusive
+    EXPECT_EQ(result.scheduled_deliveries(), 0U);
+
+    queue.run_to_completion();
+    EXPECT_FALSE(received_any);
+}
+
+TEST(NetworkSimulatorTest, LinkStateIsPerDirection) {
+    EventQueue queue;
+    NetworkSimulator network{
+        queue, NetworkConfig{.min_latency = Tick{0}, .max_latency = Tick{0}}, /*seed=*/1};
+    std::size_t at_a = 0;
+    std::size_t at_b = 0;
+    network.add_endpoint(kReceiver, [&at_b](EndpointId, const MapDelta&) { ++at_b; });
+    network.add_endpoint(kSender, [&at_a](EndpointId, const MapDelta&) { ++at_a; });
+
+    // Only the a -> b direction is cut; b -> a still delivers.
+    network.set_link_state(kSender, kReceiver, false);
+    EXPECT_TRUE(network.send(kSender, kReceiver,
+                             blocked_delta(EdgeId{4}, RobotId{1}, SequenceNumber{1}, Tick{0}))
+                    .link_down);
+    EXPECT_FALSE(network.send(kReceiver, kSender,
+                              blocked_delta(EdgeId{4}, RobotId{2}, SequenceNumber{1}, Tick{0}))
+                     .link_down);
+
+    queue.run_to_completion();
+    EXPECT_EQ(at_a, 1U);
+    EXPECT_EQ(at_b, 0U);
+}
+
+TEST(NetworkSimulatorTest, LinkReconnectAllowsDeliveryAgain) {
+    EventQueue queue;
+    NetworkSimulator network{
+        queue, NetworkConfig{.min_latency = Tick{80}, .max_latency = Tick{80}}, /*seed=*/1};
+    std::size_t received = 0;
+    network.add_endpoint(kReceiver, [&received](EndpointId, const MapDelta&) { ++received; });
+
+    network.set_link_state(kSender, kReceiver, false);
+    EXPECT_TRUE(network.send(kSender, kReceiver,
+                             blocked_delta(EdgeId{4}, RobotId{1}, SequenceNumber{1}, Tick{0}))
+                    .link_down);
+
+    network.set_link_state(kSender, kReceiver, true);
+    const auto result =
+        network.send(kSender, kReceiver, blocked_delta(EdgeId{4}, RobotId{1}, SequenceNumber{2},
+                                                        Tick{0}));
+    EXPECT_FALSE(result.link_down);
+    EXPECT_EQ(result.scheduled_deliveries(), 1U);
+
+    queue.run_to_completion();
+    EXPECT_EQ(received, 1U);
+}
+
+TEST(NetworkSimulatorTest, InFlightDeliverySurvivesLinkDown) {
+    // Connectivity is evaluated at send time only: a link going down
+    // after scheduling must not interrupt the in-flight delivery.
+    EventQueue queue;
+    NetworkSimulator network{
+        queue, NetworkConfig{.min_latency = Tick{200}, .max_latency = Tick{200}}, /*seed=*/1};
+    std::size_t received = 0;
+    network.add_endpoint(kReceiver, [&received](EndpointId, const MapDelta&) { ++received; });
+
+    queue.run_until(Tick{1000});
+    ASSERT_EQ(network.send(kSender, kReceiver,
+                           blocked_delta(EdgeId{4}, RobotId{1}, SequenceNumber{1}, Tick{1000}))
+                  .scheduled_deliveries(),
+              1U);  // delivery @1200
+
+    queue.run_until(Tick{1100});  // link goes down mid-flight
+    network.set_link_state(kSender, kReceiver, false);
+
+    queue.run_to_completion();
+    EXPECT_EQ(received, 1U);
+}
+
 }  // namespace

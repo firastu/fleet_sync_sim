@@ -47,3 +47,10 @@ add_library(fleet_robot STATIC
 add_library(fleet::robot ALIAS fleet_robot)
 target_link_libraries(fleet_robot PUBLIC fleet::planning fleet::map)
 fleet_target_warnings(fleet_robot)
+
+# Local control station: fleet-wide knowledge aggregation.
+add_library(fleet_station STATIC
+  station/control_station.cpp)
+add_library(fleet::station ALIAS fleet_station)
+target_link_libraries(fleet_station PUBLIC fleet::map)
+fleet_target_warnings(fleet_station)

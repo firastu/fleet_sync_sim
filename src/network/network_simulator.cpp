@@ -29,6 +29,19 @@ void NetworkSimulator::add_endpoint(EndpointId endpoint, ReceiveHandler on_recei
     endpoints_.emplace(endpoint, std::move(on_receive));
 }
 
+void NetworkSimulator::set_link_state(EndpointId from, EndpointId to, bool up) {
+    const LinkKey link{from, to};
+    if (up) {
+        (void)down_links_.erase(link);
+    } else {
+        down_links_.insert(link);
+    }
+}
+
+bool NetworkSimulator::is_link_up(EndpointId from, EndpointId to) const noexcept {
+    return !down_links_.contains(LinkKey{from, to});
+}
+
 SendResult NetworkSimulator::send(EndpointId from, EndpointId to, const map::MapDelta& payload) {
     const auto receiver = endpoints_.find(to);
     if (receiver == endpoints_.end()) {
@@ -36,6 +49,14 @@ SendResult NetworkSimulator::send(EndpointId from, EndpointId to, const map::Map
     }
 
     SendResult result;
+
+    // Connectivity is evaluated at send time only: a down path is a
+    // deterministic drop that consumes no randomness, and deliveries
+    // already scheduled are never interrupted (ADR-008).
+    if (down_links_.contains(LinkKey{from, to})) {
+        result.link_down = true;
+        return result;
+    }
 
     // All randomness is sampled here, synchronously at send time.
     if (trial(config_.packet_loss)) {
