@@ -1,4 +1,23 @@
-# Generated trace outputs from local fleet_sim runs (ADR-009 trace files
-# are outputs, never committed fixtures; golden traces would get explicit
-# names and be force-added if ever needed).
+# Build directories
+build/
+build-*/
+
+# Tooling artifacts
+compile_commands.json
+.cache/
+
+# Generated trace outputs from local fleet_sim runs (outputs, never
+# committed fixtures; golden traces would get explicit names and be
+# force-added if ever needed).
 /trace*.jsonl
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# docs/
+research/
