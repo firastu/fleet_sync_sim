@@ -57,6 +57,10 @@ public:
     [[nodiscard]] std::size_t node_count() const noexcept { return nodes_.size(); }
     [[nodiscard]] std::size_t edge_count() const noexcept { return edges_.size(); }
 
+    // Whole-table access in id order; NodeId/EdgeId index into these spans.
+    [[nodiscard]] std::span<const Node> nodes() const noexcept { return nodes_; }
+    [[nodiscard]] std::span<const Edge> edges() const noexcept { return edges_; }
+
     [[nodiscard]] bool contains(common::NodeId id) const noexcept;
 
     // Precondition: contains(id) — ids must originate from the same graph.

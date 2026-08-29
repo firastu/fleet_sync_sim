@@ -35,6 +35,13 @@ ctest --preset debug
 Presets: `debug`, `release`, `asan` (Address+UB Sanitizers), `tsan` (Thread
 Sanitizer — used from the concurrency stages onward).
 
+Run the demo executable (currently: build the demo map, apply two
+observations, print the composed view — no planner/network yet):
+
+```sh
+./build/debug/apps/fleet_sim/fleet_sim
+```
+
 ## Repository layout
 
 ```
@@ -43,7 +50,7 @@ src/             Library implementation
 tests/           Unit and integration tests (GoogleTest)
 docs/            Architecture notes and ADRs
 scenarios/       (upcoming) declarative simulation scenarios
-apps/            (upcoming) fleet_sim scenario runner
+apps/            fleet_sim executable (map-core demo; scenario CLI comes later)
 labs/            (upcoming) intentionally broken concurrency examples
 ```
 

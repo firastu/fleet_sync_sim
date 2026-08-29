@@ -4,6 +4,7 @@
 
 #include <limits>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <vector>
 
@@ -76,6 +77,22 @@ TEST(GraphTest, EdgeBetweenFindsUndirectedEdge) {
     // Symmetric: the edge is the same object in either direction.
     EXPECT_EQ(graph.edge_between(grid.node("G"), grid.node("F")), fg);
     EXPECT_EQ(graph.edge_between(grid.node("A"), grid.node("L")), std::nullopt);
+}
+
+TEST(GraphTest, ProvidesWholeTableAccessInIdOrder) {
+    const auto grid = make_grid_map();
+    const Graph& graph = grid.base.graph();
+
+    const std::span<const fleet::map::Node> nodes = graph.nodes();
+    ASSERT_EQ(nodes.size(), graph.node_count());
+    EXPECT_EQ(nodes.front().id, NodeId{0});
+    EXPECT_EQ(nodes.front().name, "A");
+    EXPECT_EQ(nodes.back().name, "L");
+
+    const std::span<const fleet::map::Edge> edges = graph.edges();
+    ASSERT_EQ(edges.size(), graph.edge_count());
+    EXPECT_EQ(edges.front().id, EdgeId{0});
+    EXPECT_EQ(edges.back().id, EdgeId{16});
 }
 
 TEST(GraphBuilderTest, RejectsUnknownNodeId) {

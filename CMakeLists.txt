@@ -34,6 +34,7 @@ function(fleet_target_warnings target)
 endfunction()
 
 add_subdirectory(src)
+add_subdirectory(apps)
 
 if(FLEET_BUILD_TESTS)
   enable_testing()
