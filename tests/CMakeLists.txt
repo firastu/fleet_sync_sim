@@ -22,9 +22,11 @@ add_executable(fleet_unit_tests
   unit/planning/a_star_planner_test.cpp
   unit/simulation/event_queue_test.cpp
   unit/simulation/deterministic_rng_test.cpp
-  unit/network/network_simulator_test.cpp)
+  unit/network/network_simulator_test.cpp
+  unit/robot/robot_test.cpp)
 target_include_directories(fleet_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
-target_link_libraries(fleet_unit_tests PRIVATE fleet::network fleet::planning GTest::gtest_main)
+target_link_libraries(fleet_unit_tests PRIVATE fleet::robot fleet::network fleet::planning
+                                           GTest::gtest_main)
 fleet_target_warnings(fleet_unit_tests)
 
 include(GoogleTest)

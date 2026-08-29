@@ -27,6 +27,7 @@
 #include "fleet/network/network_simulator.hpp"
 #include "fleet/planning/a_star_planner.hpp"
 #include "fleet/planning/route.hpp"
+#include "fleet/robot/robot.hpp"
 #include "fleet/simulation/event_queue.hpp"
 
 namespace {
@@ -89,16 +90,6 @@ void run() {
     const fleet::app::DemoMap demo = fleet::app::build_demo_map();
     const fleet::map::Graph& graph = demo.base.graph();
 
-    // Two participants, A and B, each with their own overlay and
-    // reconciler, connected by a simulated network link (fixed 80 ms
-    // latency, ideal link). No Robot abstraction yet.
-    fleet::map::DynamicMapOverlay overlay_a{graph.edge_count()};
-    fleet::map::DynamicMapOverlay overlay_b{graph.edge_count()};
-    fleet::map::MapReconciler reconciler_a{graph.edge_count()};
-    fleet::map::MapReconciler reconciler_b{graph.edge_count()};
-    const fleet::map::MapView view_a{demo.base, overlay_a};
-    const fleet::map::MapView view_b{demo.base, overlay_b};
-
     fleet::simulation::EventQueue queue;
     fleet::network::NetworkSimulator network{
         queue, fleet::network::NetworkConfig{.min_latency = Tick{80}, .max_latency = Tick{80}},
@@ -106,41 +97,64 @@ void run() {
     const fleet::network::EndpointId endpoint_a{1};
     const fleet::network::EndpointId endpoint_b{2};
 
-    // Default zero heuristic: Dijkstra-equivalent and always optimal.
-    const AStarPlanner planner;
-    const auto mission_from = demo.node("A");
-    const auto mission_to = demo.node("D");
+    // Autonomous participants: each robot owns its mission, overlay,
+    // reconciler and current route, and shares observations through a
+    // sink wired to the simulated link. The app coordinates wiring only.
+    fleet::robot::Robot robot_a{
+        RobotId{1},
+        fleet::robot::Mission{demo.node("A"), demo.node("D")},
+        demo.base,
+        [&](const fleet::map::MapDelta& delta) {
+            const auto result = network.send(endpoint_a, endpoint_b, delta);
+            for (const Tick at : result.delivery_ticks) {
+                std::cout << std::format(
+                    "[{}][NETWORK] send endpoint=1 -> endpoint=2 (delta source={} seq={});"
+                    " delivery scheduled @{}\n",
+                    queue.clock().now().value, delta.state.source.value(),
+                    delta.state.source_sequence.value(), at.value);
+            }
+        }};
+    fleet::robot::Robot robot_b{
+        RobotId{2},
+        fleet::robot::Mission{demo.node("I"), demo.node("H")},
+        demo.base,
+        [&](const fleet::map::MapDelta& delta) {
+            const auto result = network.send(endpoint_b, endpoint_a, delta);
+            for (const Tick at : result.delivery_ticks) {
+                std::cout << std::format(
+                    "[{}][NETWORK] send endpoint=2 -> endpoint=1 (delta source={} seq={});"
+                    " delivery scheduled @{}\n",
+                    queue.clock().now().value, delta.state.source.value(),
+                    delta.state.source_sequence.value(), at.value);
+            }
+        }};
 
-    const Route initial_a = planner.plan(view_a, mission_from, mission_to);
-    const Route initial_b = planner.plan(view_b, mission_from, mission_to);
-    if (!initial_a.found || !initial_b.found) {
-        throw std::runtime_error("demo invariant violated: A->D must be plannable");
-    }
-
-    // B's receive path: reconcile, then replan if the route is hit.
     network.add_endpoint(
         endpoint_b, [&](fleet::network::EndpointId from, const fleet::map::MapDelta& delta) {
             const std::uint64_t now = queue.clock().now().value;
+            const bool route_hit = robot_b.current_route().uses_edge(delta.edge);
+            const fleet::map::ReconcileDecision decision = robot_b.receive(delta);
             std::cout << std::format(
                 "[{}][NETWORK] endpoint={} received delta (source={} seq={} edge={})\n", now,
                 from.value(), delta.state.source.value(), delta.state.source_sequence.value(),
                 edge_label(graph, delta.edge));
             std::cout << std::format("[{}][ROBOT_B] reconcile: decision={}\n", now,
-                                     decision_name(reconciler_b.reconcile(delta, overlay_b)));
-            if (initial_b.uses_edge(delta.edge)) {
-                const Route rerouted = planner.plan(view_b, mission_from, mission_to);
-                if (!rerouted.found) {
-                    throw std::runtime_error("demo invariant violated: B must reroute");
-                }
+                                     decision_name(decision));
+            if (route_hit) {
                 std::cout << std::format("[{}][ROBOT_B] route invalidated (uses {}): rerouted {}\n",
                                          now, edge_label(graph, delta.edge),
-                                         format_route(rerouted, graph));
+                                         format_route(robot_b.current_route(), graph));
             }
+        });
+    network.add_endpoint(
+        endpoint_a, [&](fleet::network::EndpointId, const fleet::map::MapDelta&) {
+            // No traffic toward A in this demo; registration keeps A a
+            // reachable participant.
         });
 
     std::cout << "FleetSyncSim\n";
     std::cout << "milestone 1: deterministic reference simulator"
-                 " (map + planning + reconciliation + network)\n\n";
+                 " (map + planning + reconciliation + network + robots)\n\n";
     std::cout << std::format("base map: version={} nodes={} edges={}\n",
                              demo.base.version().value(), graph.node_count(),
                              graph.edge_count());
@@ -150,87 +164,38 @@ void run() {
     }
     std::cout << "\n\n";
     std::cout << std::format("mission A: A -> D\ninitial route A: {}\n",
-                             format_route(initial_a, graph));
-    std::cout << std::format("mission B: A -> D\ninitial route B: {}\n\n",
-                             format_route(initial_b, graph));
+                             format_route(robot_a.current_route(), graph));
+    std::cout << std::format("mission B: I -> H\ninitial route B: {}\n\n",
+                             format_route(robot_b.current_route(), graph));
 
-    // t = 5000: A observes an edge on its own route and shares the delta.
+    // t = 5000: the world changes edge F-G; robot A is the observer.
+    // F-G is not on A's own route (A does not replan) but it is on B's.
     queue.run_until(Tick{5000});
-    const EdgeId blocked = edge_for(demo, "B", "C");
-    const fleet::map::MapDelta observation{
-        blocked,
-        fleet::map::EdgeDynamicState{
-            .status = fleet::map::EdgeStatus::Blocked,
-            .observed_at = Tick{5000},
-            .source = RobotId{1},
-            .source_sequence = fleet::common::SequenceNumber{7},
-            .confidence = 0.9,
-        },
-    };
-
-    std::cout << "[5000][ROBOT_A] observation: edge B-C BLOCKED (delta source=1 seq=7)\n";
-    std::cout << std::format("[5000][ROBOT_A] reconcile: decision={}\n",
-                             decision_name(reconciler_a.reconcile(observation, overlay_a)));
-    if (initial_a.uses_edge(blocked)) {
-        const Route rerouted = planner.plan(view_a, mission_from, mission_to);
-        std::cout << std::format("[5000][ROBOT_A] route invalidated (uses B-C): rerouted {}\n",
-                                 format_route(rerouted, graph));
-    }
-
-    const fleet::network::SendResult sent = network.send(endpoint_a, endpoint_b, observation);
-    if (sent.scheduled_deliveries() != 1U) {
-        throw std::runtime_error("demo invariant violated: ideal link schedules one delivery");
-    }
+    const EdgeId observed = edge_for(demo, "F", "G");
+    const auto observation = robot_a.observe(observed, fleet::map::EdgeStatus::Blocked,
+                                             Tick{5000}, 0.9);
     std::cout << std::format(
-        "[5000][NETWORK] send endpoint=1 -> endpoint=2 (delta source=1 seq=7 edge=B-C);"
-        " delivery scheduled @{}\n",
-        sent.delivery_ticks.front().value);
-
-    // Re-delivery hazards against A's own knowledge (lossy-link scenarios
-    // arrive with the scenario runner).
-    std::cout << std::format("[5000][ROBOT_A] duplicate re-delivery: decision={}\n",
-                             decision_name(reconciler_a.reconcile(observation, overlay_a)));
-
-    const fleet::map::MapDelta stale{
-        blocked,
-        fleet::map::EdgeDynamicState{
-            .status = fleet::map::EdgeStatus::Blocked,
-            .observed_at = Tick{4990},
-            .source = RobotId{1},
-            .source_sequence = fleet::common::SequenceNumber{6},
-            .confidence = 0.9,
-        },
-    };
-    std::cout << std::format("[5000][ROBOT_A] stale re-delivery (seq=6): decision={}\n",
-                             decision_name(reconciler_a.reconcile(stale, overlay_a)));
-
-    const fleet::map::MapDelta dominated{
-        blocked,
-        fleet::map::EdgeDynamicState{
-            .status = fleet::map::EdgeStatus::Open,
-            .observed_at = Tick{4500},
-            .source = RobotId{2},
-            .source_sequence = fleet::common::SequenceNumber{1},
-            .confidence = 0.8,
-        },
-    };
-    std::cout << std::format(
-        "[5000][ROBOT_A] older cross-source observation (source=2 tick=4500): decision={}\n",
-        decision_name(reconciler_a.reconcile(dominated, overlay_a)));
+        "[5000][WORLD] edge F-G becomes BLOCKED\n"
+        "[5000][ROBOT_A] observation: decision={} replanned={} (edge not on own route)\n",
+        decision_name(observation.local_decision), observation.replanned ? "true" : "false");
 
     // Advance simulated time: B receives the delta at 5080 and reroutes.
     queue.run_until(Tick{6000});
 
-    std::cout << std::format("\nrobot B overlay: version={} tracked={}\n",
-                             overlay_b.version().value(), overlay_b.tracked_count());
-    for (const EdgeId edge : overlay_b.tracked_edges()) {
-        const fleet::map::EdgeDynamicState& state = *view_b.dynamic_state(edge);
-        std::cout << std::format(
-            "  edge={:>2} ({}) status={} observed_at_tick={} source={} sequence={} "
-            "confidence={:.2}\n",
-            edge.value(), edge_label(graph, edge), status_name(state.status),
-            state.observed_at.value, state.source.value(), state.source_sequence.value(),
-            state.confidence);
+    for (const fleet::robot::Robot* robot : {&robot_a, &robot_b}) {
+        std::cout << std::format("\nrobot {} overlay: version={} tracked={}\n",
+                                 robot->id().value(), robot->overlay().version().value(),
+                                 robot->overlay().tracked_count());
+        const fleet::map::MapView view{demo.base, robot->overlay()};
+        for (const EdgeId edge : robot->overlay().tracked_edges()) {
+            const fleet::map::EdgeDynamicState& state = *view.dynamic_state(edge);
+            std::cout << std::format(
+                "  edge={:>2} ({}) status={} observed_at_tick={} source={} sequence={} "
+                "confidence={:.2}\n",
+                edge.value(), edge_label(graph, edge), status_name(state.status),
+                state.observed_at.value, state.source.value(), state.source_sequence.value(),
+                state.confidence);
+        }
     }
 }
 

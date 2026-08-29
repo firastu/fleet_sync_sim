@@ -40,3 +40,10 @@ add_library(fleet_network STATIC
 add_library(fleet::network ALIAS fleet_network)
 target_link_libraries(fleet_network PUBLIC fleet::simulation fleet::map)
 fleet_target_warnings(fleet_network)
+
+# Autonomous participants: mission, local knowledge, routing autonomy.
+add_library(fleet_robot STATIC
+  robot/robot.cpp)
+add_library(fleet::robot ALIAS fleet_robot)
+target_link_libraries(fleet_robot PUBLIC fleet::planning fleet::map)
+fleet_target_warnings(fleet_robot)

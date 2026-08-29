@@ -1,5 +1,4 @@
-# Minimal developer executable: map core, planning, reconciliation and
-# network transport demo.
+# Minimal developer executable: two robots, one simulated link.
 add_executable(fleet_sim main.cpp demo_map.cpp)
-target_link_libraries(fleet_sim PRIVATE fleet::network fleet::planning fleet::map)
+target_link_libraries(fleet_sim PRIVATE fleet::robot fleet::network fleet::planning fleet::map)
 fleet_target_warnings(fleet_sim)
