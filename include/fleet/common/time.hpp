@@ -10,7 +10,7 @@ namespace fleet::common {
 // seconds is the responsibility of the simulation layer, not the domain.
 //
 // Ticks are used for ordering and age computations only. Behavioral
-// correctness never depends on wall-clock time (see ADR-003).
+// correctness never depends on wall-clock time (see ADR-002).
 struct Tick {
     std::uint64_t value = 0;
 

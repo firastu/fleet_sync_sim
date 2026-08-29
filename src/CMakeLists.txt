@@ -15,3 +15,10 @@ target_include_directories(fleet_map PUBLIC
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 target_link_libraries(fleet_map PUBLIC fleet_common)
 fleet_target_warnings(fleet_map)
+
+# Deterministic planning over MapView.
+add_library(fleet_planning STATIC
+  planning/a_star_planner.cpp)
+add_library(fleet::planning ALIAS fleet_planning)
+target_link_libraries(fleet_planning PUBLIC fleet::map)
+fleet_target_warnings(fleet_planning)

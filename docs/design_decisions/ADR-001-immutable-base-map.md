@@ -28,7 +28,8 @@ records indexed by `EdgeId`. Consumers plan against a `MapView`, which
 composes exactly one base map with one overlay at read time.
 
 Conflicts between overlays are a reconciliation problem, not a map-ownership
-problem (ADR-002, reserved for the MapDelta model, will cover it).
+problem; a reconciliation record will be written when that decision actually
+happens.
 
 ## Alternatives considered
 

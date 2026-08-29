@@ -7,7 +7,8 @@ control station is unreachable.
 
 **Status: early Milestone 1** — the deterministic, single-threaded reference
 (Stage 0). Currently implemented: the map core (immutable `BaseMap`, CSR
-`Graph`, per-participant `DynamicMapOverlay`, composed `MapView`). See the
+`Graph`, per-participant `DynamicMapOverlay`, composed `MapView`) and a
+deterministic `AStarPlanner` over `MapView`. See the
 [roadmap](#roadmap) and the [design records](docs/design_decisions/).
 
 ## The engineering problem
@@ -35,8 +36,8 @@ ctest --preset debug
 Presets: `debug`, `release`, `asan` (Address+UB Sanitizers), `tsan` (Thread
 Sanitizer — used from the concurrency stages onward).
 
-Run the demo executable (currently: build the demo map, apply two
-observations, print the composed view — no planner/network yet):
+Run the demo executable (currently: plan a mission, block an edge on the
+route, replan around it):
 
 ```sh
 ./build/debug/apps/fleet_sim/fleet_sim
@@ -70,4 +71,5 @@ labs/            (upcoming) intentionally broken concurrency examples
 ## Design records
 
 - [ADR-001: Immutable base map with per-participant dynamic overlays](docs/design_decisions/ADR-001-immutable-base-map.md)
-- [ADR-003: Deterministic single-threaded reference first](docs/design_decisions/ADR-003-single-threaded-reference.md)
+- [ADR-002: Deterministic single-threaded reference first](docs/design_decisions/ADR-002-single-threaded-reference.md)
+- [ADR-003: Deterministic planner tie-breaking contract](docs/design_decisions/ADR-003-planner-determinism.md)

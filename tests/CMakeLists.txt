@@ -17,9 +17,10 @@ add_executable(fleet_unit_tests
   unit/map/graph_test.cpp
   unit/map/base_map_test.cpp
   unit/map/dynamic_overlay_test.cpp
-  unit/map/map_view_test.cpp)
+  unit/map/map_view_test.cpp
+  unit/planning/a_star_planner_test.cpp)
 target_include_directories(fleet_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
-target_link_libraries(fleet_unit_tests PRIVATE fleet::map GTest::gtest_main)
+target_link_libraries(fleet_unit_tests PRIVATE fleet::planning GTest::gtest_main)
 fleet_target_warnings(fleet_unit_tests)
 
 include(GoogleTest)

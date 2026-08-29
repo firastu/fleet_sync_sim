@@ -1,11 +1,8 @@
-# ADR-003: Deterministic single-threaded reference implementation first
+# ADR-002: Deterministic single-threaded reference implementation first
 
 - Status: Accepted
 - Date: 2026-08-29
 - Scope: entire simulator core
-
-> Note: ADR-002 (MapDelta sequencing) is deliberately reserved and lands with
-> the delta/reconciliation commit; it does not exist yet.
 
 ## Context
 

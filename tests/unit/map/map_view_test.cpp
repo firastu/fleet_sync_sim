@@ -30,6 +30,7 @@ TEST_F(MapViewTest, UntrackedEdgeExposesBaseCost) {
     const MapView view{grid_.base, overlay_};
 
     EXPECT_EQ(&view.base(), &grid_.base);
+    EXPECT_EQ(&view.overlay(), &overlay_);
     EXPECT_FALSE(view.is_blocked(fg_));
     ASSERT_TRUE(view.traversal_cost(fg_).has_value());
     EXPECT_DOUBLE_EQ(*view.traversal_cost(fg_), 1.0);

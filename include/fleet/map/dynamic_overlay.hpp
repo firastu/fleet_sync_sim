@@ -44,7 +44,7 @@ struct EdgeDynamicState {
 //     idempotent re-application does not bump it;
 //   - apply() performs no conflict resolution (mechanism, not policy).
 //
-// Thread-safety: not synchronized; single-threaded reference stage (ADR-003).
+// Thread-safety: not synchronized; single-threaded reference stage (ADR-002).
 class DynamicMapOverlay {
 public:
     explicit DynamicMapOverlay(std::size_t edge_count);

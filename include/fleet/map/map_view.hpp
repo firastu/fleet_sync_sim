@@ -23,12 +23,16 @@ namespace fleet::map {
 // objects: create one per planning pass rather than caching across map
 // changes.
 //
-// Thread-safety: not synchronized; single-threaded reference stage (ADR-003).
+// Thread-safety: not synchronized; single-threaded reference stage (ADR-002).
 class MapView {
 public:
     MapView(const BaseMap& base, const DynamicMapOverlay& overlay) noexcept;
 
     [[nodiscard]] const BaseMap& base() const noexcept { return *base_; }
+
+    // The overlay this view was composed with (planners record its version
+    // as plan provenance).
+    [[nodiscard]] const DynamicMapOverlay& overlay() const noexcept { return *overlay_; }
 
     // Precondition: base().graph().contains(node).
     [[nodiscard]] std::span<const AdjacencyEntry> adjacency(common::NodeId node) const noexcept;
