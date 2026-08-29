@@ -1,0 +1,40 @@
+{
+  "name": "station_partition",
+  "seed": 1,
+  "network": {
+    "min_latency_ms": 80,
+    "max_latency_ms": 80
+  },
+  "station": {
+    "endpoint": 3
+  },
+  "robots": [
+    {
+      "name": "robot_a",
+      "id": 1,
+      "endpoint": 1,
+      "mission": { "start": "A", "goal": "D" }
+    },
+    {
+      "name": "robot_b",
+      "id": 2,
+      "endpoint": 2,
+      "mission": { "start": "I", "goal": "H" }
+    }
+  ],
+  "events": [
+    { "at_ms": 2000, "action": "set_link_state", "from": "robot_a", "to": "station", "up": false },
+    { "at_ms": 2000, "action": "set_link_state", "from": "robot_b", "to": "station", "up": false },
+    { "at_ms": 2000, "action": "set_link_state", "from": "station", "to": "robot_a", "up": false },
+    { "at_ms": 2000, "action": "set_link_state", "from": "station", "to": "robot_b", "up": false },
+
+    { "at_ms": 5000, "action": "observe_edge", "robot": "robot_a", "edge": "F-G", "state": "blocked", "confidence": 0.9 },
+
+    { "at_ms": 8000, "action": "set_link_state", "from": "robot_a", "to": "station", "up": true },
+    { "at_ms": 8000, "action": "set_link_state", "from": "robot_b", "to": "station", "up": true },
+    { "at_ms": 8000, "action": "set_link_state", "from": "station", "to": "robot_a", "up": true },
+    { "at_ms": 8000, "action": "set_link_state", "from": "station", "to": "robot_b", "up": true },
+    { "at_ms": 8000, "action": "resynchronize", "robot": "robot_a" },
+    { "at_ms": 8000, "action": "resynchronize", "robot": "robot_b" }
+  ]
+}

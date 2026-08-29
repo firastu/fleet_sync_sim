@@ -16,7 +16,8 @@ Robots maintain local maps, exchange sequenced map deltas over unreliable
 links, reconcile observations, and reroute autonomously while the control
 station may be unreachable.
 
-> **Status: Milestone M1 — deterministic single-threaded reference simulator.**
+> **Status: Milestone M1 complete — deterministic single-threaded reference
+> simulator.**
 
 Currently implemented:
 
@@ -36,7 +37,9 @@ Currently implemented:
 - directed link state and partitions;
 - `ControlStation` fleet knowledge aggregation;
 - reconnect synchronization by idempotent re-announcement;
-- autonomous robot-local knowledge and rerouting.
+- autonomous robot-local knowledge and rerouting;
+- declarative JSON scenarios, `--scenario/--seed/--trace` CLI;
+- deterministic structured trace (console + JSONL).
 
 See:
 
@@ -81,10 +84,32 @@ Requirements:
 - CMake >= 3.21
 - GCC >= 11 or Clang >= 14
 
-The first configure fetches GoogleTest and therefore requires network access.
-Later configures can operate offline.
+The first configure fetches GoogleTest and nlohmann/json and therefore
+requires network access. Later configures can operate offline.
 
 ```sh
 cmake --preset debug
 cmake --build --preset debug
 ctest --preset debug
+```
+
+Sanitized builds: `cmake --preset asan|tsan` (TSan on GCC 13 needs
+`setarch $(uname -m) -R` for builds and test runs; ASLR entropy issue,
+per-process workaround only).
+
+### Running scenarios
+
+```sh
+# Built-in founding scenario (station partition, observation, reroute,
+# reconnect, resynchronize):
+./build/debug/apps/fleet_sim/fleet_sim
+
+# Declarative scenario file + explicit seed + machine-readable trace:
+./build/debug/apps/fleet_sim/fleet_sim \
+    --scenario scenarios/station_partition.json --seed 1234 --trace run.jsonl
+```
+
+Seed precedence: `--seed` overrides the scenario file's `seed`, which
+overrides the documented default `0`; the resolved seed is logged in the
+first trace events. Same scenario + same resolved seed produce a
+byte-identical trace. Scenario format and trace contract: ADR-009.

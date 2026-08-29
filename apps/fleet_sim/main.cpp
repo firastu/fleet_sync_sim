@@ -1,291 +1,183 @@
-// Minimal developer entry point: build the demo world, plan missions for
-// two participants, let one observe a blocked edge, share the delta over
-// the simulated network, and reroute both participants.
+// fleet_sim — CLI over the scenario runner (ADR-009).
 //
-// No Robot abstraction yet (commit #7); participants here are just an
-// overlay + reconciler each, connected through NetworkSimulator. The
-// --scenario/--seed CLI arrives with the scenario runner.
+//   fleet_sim                                     built-in founding scenario
+//   fleet_sim --scenario <file>                    declarative scenario file
+//   fleet_sim --seed <uint64>                      CLI seed (highest precedence)
+//   fleet_sim --trace <file>                       JSONL structured trace
+//
+// Same scenario + same resolved seed => byte-identical trace. The console
+// output and the JSONL trace are both formatters over the same TraceEvents;
+// the console sink is always attached, the JSONL sink only with --trace.
 
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <iostream>
+#include <limits>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
-#include <string_view>
+#include <vector>
 
 #include "demo_map.hpp"
 
-#include "fleet/common/ids.hpp"
-#include "fleet/common/time.hpp"
-#include "fleet/map/dynamic_overlay.hpp"
-#include "fleet/map/graph.hpp"
-#include "fleet/map/map_delta.hpp"
-#include "fleet/map/map_reconciler.hpp"
-#include "fleet/map/map_view.hpp"
-#include "fleet/network/network_simulator.hpp"
-#include "fleet/planning/a_star_planner.hpp"
-#include "fleet/planning/route.hpp"
-#include "fleet/robot/robot.hpp"
-#include "fleet/simulation/event_queue.hpp"
-#include "fleet/station/control_station.hpp"
+#include "fleet/scenario/scenario.hpp"
+#include "fleet/scenario/scenario_loader.hpp"
+#include "fleet/scenario/scenario_runner.hpp"
+#include "fleet/scenario/trace.hpp"
 
 namespace {
 
-using fleet::common::EdgeId;
-using fleet::common::RobotId;
-using fleet::common::Tick;
-using fleet::planning::AStarPlanner;
-using fleet::planning::Route;
+// The founding demo (commit #2..#8) as declarative data: a station
+// partition, one observation, one reroute, a reconnect and a resync.
+// scenarios/station_partition.json describes the same run for the file
+// path; this built-in copy keeps `fleet_sim` runnable with no arguments
+// and no file-path dependence.
+[[nodiscard]] fleet::scenario::Scenario make_founding_scenario(
+    const fleet::app::DemoMap& demo) {
+    using fleet::common::RobotId;
+    using fleet::common::Tick;
+    using fleet::map::EdgeStatus;
+    using fleet::network::EndpointId;
+    using fleet::scenario::ObserveEdgeAction;
+    using fleet::scenario::ResynchronizeAction;
+    using fleet::scenario::Scenario;
+    using fleet::scenario::ScenarioEvent;
+    using fleet::scenario::SetLinkAction;
 
-std::string format_route(const Route& route, const fleet::map::Graph& graph) {
-    if (!route.found) {
-        return "<no route>";
-    }
-    std::string text;
-    for (std::size_t i = 0; i < route.nodes.size(); ++i) {
-        if (i > 0) {
-            text += " -> ";
-        }
-        text += graph.node(route.nodes[i]).name;
-    }
-    return text + std::format(" cost={:.2f}", route.cost);
-}
+    Scenario scenario;
+    scenario.name = "station_partition";
+    scenario.seed = 1;
+    scenario.has_station = true;
+    scenario.station_endpoint = EndpointId{3};
+    scenario.robots.push_back(
+        {"robot_a", RobotId{1}, EndpointId{1}, {demo.node("A"), demo.node("D")}});
+    scenario.robots.push_back(
+        {"robot_b", RobotId{2}, EndpointId{2}, {demo.node("I"), demo.node("H")}});
 
-EdgeId edge_for(const fleet::app::DemoMap& demo, const char* a, const char* b) {
-    const std::optional<EdgeId> edge =
-        demo.base.graph().edge_between(demo.node(a), demo.node(b));
-    if (!edge.has_value()) {
-        throw std::runtime_error(std::format("demo map has no edge {}-{}", a, b));
-    }
-    return *edge;
-}
-
-std::string edge_label(const fleet::map::Graph& graph, EdgeId edge) {
-    const fleet::map::Edge& base_edge = graph.edge(edge);
-    return std::format("{}-{}", graph.node(base_edge.a).name, graph.node(base_edge.b).name);
-}
-
-std::string_view status_name(fleet::map::EdgeStatus status) {
-    return status == fleet::map::EdgeStatus::Open ? "OPEN" : "BLOCKED";
-}
-
-std::string_view decision_name(fleet::map::ReconcileDecision decision) {
-    if (decision == fleet::map::ReconcileDecision::Applied) {
-        return "APPLIED";
-    }
-    if (decision == fleet::map::ReconcileDecision::Duplicate) {
-        return "DUPLICATE";
-    }
-    if (decision == fleet::map::ReconcileDecision::Stale) {
-        return "STALE";
-    }
-    if (decision == fleet::map::ReconcileDecision::Dominated) {
-        return "DOMINATED";
-    }
-    return "REJECTED_CONFLICT";
-}
-
-// Prints one send's transport outcome per scheduled delivery (or the
-// deterministic link-down / sampled-loss drop).
-void print_sends(const fleet::simulation::EventQueue& queue, std::string_view from,
-                 const std::vector<std::pair<int, fleet::network::SendResult>>& sends) {
-    for (const auto& [to, result] : sends) {
-        if (result.link_down) {
-            std::cout << std::format("[{}][NETWORK] send endpoint={} -> endpoint={}: link down\n",
-                                     queue.clock().now().value, from, to);
-        } else if (result.dropped) {
-            std::cout << std::format("[{}][NETWORK] send endpoint={} -> endpoint={}: lost\n",
-                                     queue.clock().now().value, from, to);
-        } else {
-            for (const Tick at : result.delivery_ticks) {
-                std::cout << std::format(
-                    "[{}][NETWORK] send endpoint={} -> endpoint={}; delivery scheduled @{}\n",
-                    queue.clock().now().value, from, to, at.value);
-            }
-        }
-    }
-}
-
-void run() {
-    const fleet::app::DemoMap demo = fleet::app::build_demo_map();
-    const fleet::map::Graph& graph = demo.base.graph();
-
-    fleet::simulation::EventQueue queue;
-    fleet::network::NetworkSimulator network{
-        queue, fleet::network::NetworkConfig{.min_latency = Tick{80}, .max_latency = Tick{80}},
-        /*seed=*/1};
-    const fleet::network::EndpointId endpoint_a{1};
-    const fleet::network::EndpointId endpoint_b{2};
-    const fleet::network::EndpointId endpoint_station{3};
-
-    fleet::station::ControlStation station{demo.base};
-
-    // Autonomous participants: each robot owns its mission, overlay,
-    // reconciler and current route, and shares observations through a
-    // sink wired to the simulated link. The app coordinates wiring only.
-    fleet::robot::Robot robot_a{
-        RobotId{1},
-        fleet::robot::Mission{demo.node("A"), demo.node("D")},
-        demo.base,
-        [&](const fleet::map::MapDelta& delta) {
-            const auto to_b = network.send(endpoint_a, endpoint_b, delta);
-            const auto to_station = network.send(endpoint_a, endpoint_station, delta);
-            print_sends(queue, "1", {{2, to_b}, {3, to_station}});
-        }};
-    fleet::robot::Robot robot_b{
-        RobotId{2},
-        fleet::robot::Mission{demo.node("I"), demo.node("H")},
-        demo.base,
-        [&](const fleet::map::MapDelta& delta) {
-            const auto to_a = network.send(endpoint_b, endpoint_a, delta);
-            const auto to_station = network.send(endpoint_b, endpoint_station, delta);
-            print_sends(queue, "2", {{1, to_a}, {3, to_station}});
-        }};
-
-    network.add_endpoint(
-        endpoint_b, [&](fleet::network::EndpointId from, const fleet::map::MapDelta& delta) {
-            const std::uint64_t now = queue.clock().now().value;
-            const bool route_hit = robot_b.current_route().uses_edge(delta.edge);
-            const fleet::map::ReconcileDecision decision = robot_b.receive(delta);
-            std::cout << std::format(
-                "[{}][NETWORK] endpoint={} received delta (source={} seq={} edge={})\n", now,
-                from.value(), delta.state.source.value(), delta.state.source_sequence.value(),
-                edge_label(graph, delta.edge));
-            std::cout << std::format("[{}][ROBOT_B] reconcile: decision={}\n", now,
-                                     decision_name(decision));
-            if (route_hit) {
-                std::cout << std::format("[{}][ROBOT_B] route invalidated (uses {}): rerouted {}\n",
-                                         now, edge_label(graph, delta.edge),
-                                         format_route(robot_b.current_route(), graph));
-            }
-        });
-    network.add_endpoint(
-        endpoint_a, [&](fleet::network::EndpointId from, const fleet::map::MapDelta& delta) {
-            const std::uint64_t now = queue.clock().now().value;
-            const fleet::map::ReconcileDecision decision = robot_a.receive(delta);
-            std::cout << std::format(
-                "[{}][NETWORK] endpoint={} received delta (source={} seq={} edge={})\n", now,
-                from.value(), delta.state.source.value(), delta.state.source_sequence.value(),
-                edge_label(graph, delta.edge));
-            std::cout << std::format("[{}][ROBOT_A] reconcile: decision={}\n", now,
-                                     decision_name(decision));
-        });
-    network.add_endpoint(
-        endpoint_station,
-        [&](fleet::network::EndpointId from, const fleet::map::MapDelta& delta) {
-            const std::uint64_t now = queue.clock().now().value;
-            const fleet::map::ReconcileDecision decision = station.receive(delta);
-            std::cout << std::format(
-                "[{}][NETWORK] endpoint={} received delta (source={} seq={} edge={})\n", now,
-                from.value(), delta.state.source.value(), delta.state.source_sequence.value(),
-                edge_label(graph, delta.edge));
-            std::cout << std::format("[{}][STATION] reconcile: decision={}\n", now,
-                                     decision_name(decision));
-        });
-
-    std::cout << "FleetSyncSim\n";
-    std::cout << "milestone M1: deterministic reference simulator"
-                 " (map + planning + reconciliation + network + robots + station)\n\n";
-    std::cout << std::format("base map: version={} nodes={} edges={}\n",
-                             demo.base.version().value(), graph.node_count(),
-                             graph.edge_count());
-    std::cout << "nodes:";
-    for (const auto& node : graph.nodes()) {
-        std::cout << ' ' << node.name;
-    }
-    std::cout << "\n\n";
-    std::cout << std::format("mission A: A -> D\ninitial route A: {}\n",
-                             format_route(robot_a.current_route(), graph));
-    std::cout << std::format("mission B: I -> H\ninitial route B: {}\n\n",
-                             format_route(robot_b.current_route(), graph));
-
-    // Cut or restore every (robot <-> station) transmission path.
-    const auto set_station_links = [&network, endpoint_a, endpoint_b,
-                                    endpoint_station](bool up) {
-        for (const auto& [from, to] :
-             {std::pair{endpoint_a, endpoint_station}, std::pair{endpoint_b, endpoint_station},
-              std::pair{endpoint_station, endpoint_a}, std::pair{endpoint_station, endpoint_b}}) {
-            network.set_link_state(from, to, up);
-        }
+    const auto link = [&](Tick at, EndpointId from, EndpointId to, bool up) {
+        scenario.events.push_back(ScenarioEvent{at, SetLinkAction{from, to, up}});
     };
+    // t = 2000: station partitioned (all four directed paths down).
+    link(Tick{2000}, EndpointId{1}, EndpointId{3}, false);
+    link(Tick{2000}, EndpointId{2}, EndpointId{3}, false);
+    link(Tick{2000}, EndpointId{3}, EndpointId{1}, false);
+    link(Tick{2000}, EndpointId{3}, EndpointId{2}, false);
+    // t = 5000: robot_a observes F-G blocked.
+    scenario.events.push_back(ScenarioEvent{
+        Tick{5000},
+        ObserveEdgeAction{RobotId{1}, *demo.base.graph().edge_between(demo.node("F"),
+                                                                      demo.node("G")),
+                          EdgeStatus::Blocked, 0.9}});
+    // t = 8000: reconnect, then both robots resynchronize (file order).
+    link(Tick{8000}, EndpointId{1}, EndpointId{3}, true);
+    link(Tick{8000}, EndpointId{2}, EndpointId{3}, true);
+    link(Tick{8000}, EndpointId{3}, EndpointId{1}, true);
+    link(Tick{8000}, EndpointId{3}, EndpointId{2}, true);
+    scenario.events.push_back(ScenarioEvent{Tick{8000}, ResynchronizeAction{RobotId{1}}});
+    scenario.events.push_back(ScenarioEvent{Tick{8000}, ResynchronizeAction{RobotId{2}}});
+    return scenario;
+}
 
-    // t = 2000: the control station is partitioned away. The fleet must
-    // keep operating without it.
-    queue.run_until(Tick{2000});
-    set_station_links(false);
-    std::cout << "[2000][WORLD] station partitioned from the fleet\n\n";
+struct Options {
+    std::optional<std::filesystem::path> scenario_file;
+    std::optional<std::uint64_t> cli_seed;
+    std::optional<std::filesystem::path> trace_file;
+};
 
-    // t = 5000: the world changes edge F-G; robot A is the observer.
-    // F-G is not on A's own route (A does not replan) but it is on B's.
-    queue.run_until(Tick{5000});
-    const EdgeId observed = edge_for(demo, "F", "G");
-    const auto observation =
-        robot_a.observe(observed, fleet::map::EdgeStatus::Blocked, Tick{5000}, 0.9);
-    std::cout << std::format(
-        "[5000][WORLD] edge F-G becomes BLOCKED\n"
-        "[5000][ROBOT_A] observation: decision={} replanned={} (edge not on own route)\n\n",
-        decision_name(observation.local_decision), observation.replanned ? "true" : "false");
+[[nodiscard]] std::runtime_error usage_error(const std::string& message) {
+    return std::runtime_error(std::format(
+        "{}\nusage: fleet_sim [--scenario <file>] [--seed <uint64>] [--trace <file>]",
+        message));
+}
 
-    // B receives the delta at 5080 and reroutes; the station-bound copies
-    // are dropped deterministically (link down, no RNG consumed).
-    queue.run_until(Tick{6000});
-    std::cout << '\n';
+// Strict uint64 parsing: digits only, no overflow, full-token consumption.
+[[nodiscard]] std::uint64_t parse_seed(const std::string& text) {
+    std::uint64_t value = 0;
+    if (text.empty()) {
+        throw usage_error("--seed expects an unsigned 64-bit integer");
+    }
+    for (const char digit : text) {
+        if (digit < '0' || digit > '9') {
+            throw usage_error(std::format(
+                "--seed expects an unsigned 64-bit integer, got '{}'", text));
+        }
+        if (value > (std::numeric_limits<std::uint64_t>::max() - (digit - '0')) / 10) {
+            throw usage_error(std::format("--seed value '{}' out of range", text));
+        }
+        value = value * 10 + static_cast<std::uint64_t>(digit - '0');
+    }
+    return value;
+}
 
-    // t = 8000: the station reconnects; the fleet re-announces its
-    // knowledge winners (idempotent re-announcement, ADR-008).
-    queue.run_until(Tick{8000});
-    set_station_links(true);
-    std::cout << "[8000][WORLD] station reconnected\n";
-    std::cout << std::format("[8000][ROBOT_A] resynchronize: {} delta(s)\n",
-                             robot_a.resynchronize());
-    std::cout << std::format("[8000][ROBOT_B] resynchronize: {} delta(s)\n\n",
-                             robot_b.resynchronize());
-
-    // Deliveries land at 8080: the station applies what it missed and
-    // suppresses duplicates; the robots suppress each other's echoes.
-    queue.run_until(Tick{9000});
-
-    for (const fleet::robot::Robot* robot : {&robot_a, &robot_b}) {
-        std::cout << std::format("\nrobot {} overlay: version={} tracked={}\n",
-                                 robot->id().value(), robot->overlay().version().value(),
-                                 robot->overlay().tracked_count());
-        const fleet::map::MapView view{demo.base, robot->overlay()};
-        for (const EdgeId edge : robot->overlay().tracked_edges()) {
-            const fleet::map::EdgeDynamicState& state = *view.dynamic_state(edge);
-            std::cout << std::format(
-                "  edge={:>2} ({}) status={} observed_at_tick={} source={} sequence={} "
-                "confidence={:.2}\n",
-                edge.value(), edge_label(graph, edge), status_name(state.status),
-                state.observed_at.value, state.source.value(), state.source_sequence.value(),
-                state.confidence);
+[[nodiscard]] Options parse_options(std::span<const char* const> args) {
+    Options options;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const std::string argument = args[i];
+        const auto value = [&]() -> std::string {
+            if (i + 1 >= args.size()) {
+                throw usage_error(std::format("{} expects a value", argument));
+            }
+            return args[++i];
+        };
+        if (argument == "--scenario") {
+            options.scenario_file = value();
+        } else if (argument == "--seed") {
+            options.cli_seed = parse_seed(value());
+        } else if (argument == "--trace") {
+            options.trace_file = value();
+        } else {
+            throw usage_error(std::format("unknown option '{}'", argument));
         }
     }
+    return options;
+}
 
-    std::cout << std::format("\nstation overlay: version={} tracked={}\n",
-                             station.overlay().version().value(),
-                             station.overlay().tracked_count());
-    const fleet::map::MapView station_view{demo.base, station.overlay()};
-    for (const EdgeId edge : station.overlay().tracked_edges()) {
-        const fleet::map::EdgeDynamicState& state = *station_view.dynamic_state(edge);
-        std::cout << std::format(
-            "  edge={:>2} ({}) status={} observed_at_tick={} source={} sequence={} "
-            "confidence={:.2}\n",
-            edge.value(), edge_label(graph, edge), status_name(state.status),
-            state.observed_at.value, state.source.value(), state.source_sequence.value(),
-            state.confidence);
+int run(const Options& options) {
+    const fleet::app::DemoMap demo = fleet::app::build_demo_map();
+
+    fleet::scenario::Scenario scenario =
+        options.scenario_file.has_value()
+            ? fleet::scenario::ScenarioLoader::load(demo.base, *options.scenario_file)
+            : make_founding_scenario(demo);
+    const std::string scenario_name = scenario.name;
+    const std::uint64_t resolved_seed =
+        fleet::scenario::resolve_seed(options.cli_seed, scenario.seed);
+
+    std::optional<std::ofstream> trace_output;
+    std::optional<fleet::scenario::JsonlTraceSink> jsonl_sink;
+    if (options.trace_file.has_value()) {
+        trace_output.emplace(*options.trace_file, std::ios::out | std::ios::trunc);
+        if (!trace_output->is_open()) {
+            throw std::runtime_error(
+                std::format("cannot open trace file '{}'", options.trace_file->string()));
+        }
+        jsonl_sink.emplace(*trace_output);
     }
+
+    fleet::scenario::ConsoleTraceSink console_sink{std::cout};
+    fleet::scenario::ScenarioRunner runner{demo.base, std::move(scenario), resolved_seed};
+    runner.add_sink(console_sink);
+    if (jsonl_sink.has_value()) {
+        runner.add_sink(*jsonl_sink);
+    }
+    const fleet::scenario::ScenarioRunner::Result result = runner.run_to_completion();
+
+    std::cout << std::format("\nscenario '{}' finished at tick {} (resolved seed {})\n",
+                             scenario_name, result.finished_at.value, result.resolved_seed);
+    return EXIT_SUCCESS;
 }
 
 }  // namespace
 
-int main() {
+int main(int argc, char* argv[]) {
     try {
-        run();
+        return run(parse_options({argv + 1, argv + argc}));
     } catch (const std::exception& error) {
-        std::cerr << std::format("fleet_sim: fatal: {}\n", error.what());
+        std::cerr << std::format("fleet_sim: {}\n", error.what());
         return EXIT_FAILURE;
     }
-    return EXIT_SUCCESS;
 }

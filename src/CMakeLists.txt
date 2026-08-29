@@ -1,3 +1,21 @@
+include(FetchContent)
+
+# Scenario JSON parsing: one small, well-contained dependency, pinned and
+# PRIVATE to the loader — parser types never appear in public headers.
+find_package(nlohmann_json CONFIG QUIET)
+if(NOT nlohmann_json_FOUND)
+  FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+    GIT_SHALLOW TRUE
+  )
+  # Header-only use; skip the library's own tests and install rules.
+  set(JSON_BuildTests OFF CACHE INTERNAL "")
+  set(JSON_Install OFF CACHE INTERNAL "")
+  FetchContent_MakeAvailable(nlohmann_json)
+endif()
+
 # Header-only shared vocabulary: strongly-typed ids, logical time.
 add_library(fleet_common INTERFACE)
 add_library(fleet::common ALIAS fleet_common)
@@ -54,3 +72,18 @@ add_library(fleet_station STATIC
 add_library(fleet::station ALIAS fleet_station)
 target_link_libraries(fleet_station PUBLIC fleet::map)
 fleet_target_warnings(fleet_station)
+
+# Scenario runner + deterministic structured trace: wiring and scheduling
+# over existing public APIs only (ADR-009). The JSON parser is PRIVATE to
+# the loader; everything downstream consumes typed Scenario data.
+add_library(fleet_scenario STATIC
+  scenario/trace.cpp
+  scenario/scenario_loader.cpp
+  scenario/scenario_runner.cpp)
+add_library(fleet::scenario ALIAS fleet_scenario)
+target_include_directories(fleet_scenario PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
+target_link_libraries(fleet_scenario
+  PUBLIC fleet::robot fleet::network fleet::station
+  PRIVATE nlohmann_json::nlohmann_json)
+fleet_target_warnings(fleet_scenario)

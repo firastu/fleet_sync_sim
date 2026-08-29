@@ -24,11 +24,19 @@ add_executable(fleet_unit_tests
   unit/simulation/deterministic_rng_test.cpp
   unit/network/network_simulator_test.cpp
   unit/robot/robot_test.cpp
-  unit/station/control_station_test.cpp)
+  unit/station/control_station_test.cpp
+  unit/scenario/scenario_test.cpp
+  unit/scenario/scenario_runner_test.cpp)
 target_include_directories(fleet_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 target_link_libraries(fleet_unit_tests PRIVATE fleet::station fleet::robot fleet::network
-                                           fleet::planning GTest::gtest_main)
+                                           fleet::planning fleet::scenario
+                                           GTest::gtest_main)
 fleet_target_warnings(fleet_unit_tests)
+
+# Scenario files under test are part of the declarative contract: copy them
+# next to the test binary so loader tests run the real on-disk artifacts.
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/../scenarios
+     DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
 include(GoogleTest)
 gtest_discover_tests(fleet_unit_tests)

@@ -1,0 +1,280 @@
+#include "fleet/scenario/scenario_runner.hpp"
+
+#include <algorithm>
+#include <format>
+#include <stdexcept>
+#include <utility>
+
+#include "fleet/map/graph.hpp"
+#include "fleet/map/map_delta.hpp"
+#include "fleet/network/network_simulator.hpp"
+#include "fleet/simulation/event_queue.hpp"
+
+namespace fleet::scenario {
+
+namespace {
+
+[[nodiscard]] std::string decision_name(map::ReconcileDecision decision) {
+    switch (decision) {
+        case map::ReconcileDecision::Applied:
+            return "applied";
+        case map::ReconcileDecision::Duplicate:
+            return "duplicate";
+        case map::ReconcileDecision::Stale:
+            return "stale";
+        case map::ReconcileDecision::Dominated:
+            return "dominated";
+        case map::ReconcileDecision::RejectedConflict:
+            return "rejected_conflict";
+    }
+    return "?";
+}
+
+[[nodiscard]] std::string route_summary(const planning::Route& route,
+                                        const map::Graph& graph) {
+    if (!route.found) {
+        return "<no route>";
+    }
+    std::string text;
+    for (std::size_t i = 0; i < route.nodes.size(); ++i) {
+        if (i > 0) {
+            text += "->";
+        }
+        text += graph.node(route.nodes[i]).name;
+    }
+    return text;
+}
+
+}  // namespace
+
+ScenarioRunner::ScenarioRunner(const map::BaseMap& base, Scenario scenario,
+                               std::uint64_t resolved_seed)
+    : base_{base}, scenario_{std::move(scenario)}, resolved_seed_{resolved_seed} {}
+
+ScenarioRunner::~ScenarioRunner() = default;
+
+void ScenarioRunner::add_sink(TraceSink& sink) {
+    sinks_.push_back(&sink);
+}
+
+const robot::Robot& ScenarioRunner::robot(std::string_view name) const {
+    return *robots_.at(index_of_robot(name));
+}
+
+const station::ControlStation* ScenarioRunner::station() const noexcept {
+    return station_.get();
+}
+
+void ScenarioRunner::emit(TraceEvent event) {
+    for (TraceSink* sink : sinks_) {
+        sink->record(event);
+    }
+}
+
+std::string ScenarioRunner::robot_name_of(common::RobotId id) const {
+    for (const ScenarioRobot& entry : scenario_.robots) {
+        if (entry.id == id) {
+            return entry.name;
+        }
+    }
+    return std::format("robot{}", id.value());
+}
+
+std::size_t ScenarioRunner::index_of_robot(std::string_view name) const {
+    for (std::size_t index = 0; index < scenario_.robots.size(); ++index) {
+        if (scenario_.robots[index].name == name) {
+            return index;
+        }
+    }
+    throw std::invalid_argument(std::format("scenario runner: unknown robot '{}'", name));
+}
+
+std::size_t ScenarioRunner::index_of_robot(common::RobotId id) const {
+    for (std::size_t index = 0; index < scenario_.robots.size(); ++index) {
+        if (scenario_.robots[index].id == id) {
+            return index;
+        }
+    }
+    throw std::invalid_argument(
+        std::format("scenario runner: unknown robot id {}", id.value()));
+}
+
+std::string ScenarioRunner::edge_label(common::EdgeId edge) const {
+    const map::Edge& base_edge = base_.graph().edge(edge);
+    return std::format("{}-{}", base_.graph().node(base_edge.a).name,
+                       base_.graph().node(base_edge.b).name);
+}
+
+void ScenarioRunner::wire_world() {
+    queue_ = std::make_unique<simulation::EventQueue>();
+    network_ =
+        std::make_unique<network::NetworkSimulator>(*queue_, scenario_.network, resolved_seed_);
+    if (scenario_.has_station) {
+        station_ = std::make_unique<station::ControlStation>(base_);
+    }
+
+    // Participant order everywhere: robots in declaration order, station last.
+    const std::size_t robot_count = scenario_.robots.size();
+    const std::size_t participant_count = robot_count + (scenario_.has_station ? 1 : 0);
+
+    for (std::size_t index = 0; index < robot_count; ++index) {
+        const ScenarioRobot& declaration = scenario_.robots[index];
+        robots_.push_back(std::make_unique<robot::Robot>(
+            declaration.id, declaration.mission, base_,
+            [this, index, participant_count](const map::MapDelta& delta) {
+                const common::Tick now = queue_->clock().now();
+                for (std::size_t target = 0; target < participant_count; ++target) {
+                    if (target == index) {
+                        continue;  // never send to self
+                    }
+                    const network::SendResult result = network_->send(
+                        scenario_.robots[index].endpoint, target_endpoint(target), delta);
+                    TraceEvent event;
+                    event.at = now;
+                    event.source = scenario_.robots[index].name;
+                    event.type = "send";
+                    event.fields.emplace_back("to", target_name(target));
+                    if (result.link_down) {
+                        event.fields.emplace_back("outcome", std::string{"link_down"});
+                    } else if (result.dropped) {
+                        event.fields.emplace_back("outcome", std::string{"lost"});
+                    } else {
+                        event.fields.emplace_back("outcome", std::string{"scheduled"});
+                        event.fields.emplace_back(
+                            "deliveries", static_cast<std::int64_t>(result.delivery_ticks.size()));
+                        event.fields.emplace_back(
+                            "first_at",
+                            static_cast<std::int64_t>(result.delivery_ticks.front().value));
+                    }
+                    emit(std::move(event));
+                }
+            }));
+    }
+
+    for (std::size_t index = 0; index < robot_count; ++index) {
+        wire_delivery_handler(index);
+    }
+    if (scenario_.has_station) {
+        network_->add_endpoint(
+            scenario_.station_endpoint,
+            [this](network::EndpointId from, const map::MapDelta& delta) {
+                const map::ReconcileDecision decision = station_->receive(delta);
+                TraceEvent event;
+                event.at = queue_->clock().now();
+                event.source = "station";
+                event.type = "reconcile";
+                event.fields.emplace_back("from", static_cast<std::int64_t>(from.value()));
+                event.fields.emplace_back("decision", decision_name(decision));
+                emit(std::move(event));
+            });
+    }
+
+    emit(TraceEvent{
+        common::Tick{0}, "world", "scenario", {{"name", scenario_.name}}});
+    emit(TraceEvent{
+        common::Tick{0}, "world", "seed", {{"value", static_cast<std::int64_t>(resolved_seed_)}}});
+    for (const std::unique_ptr<robot::Robot>& entry : robots_) {
+        emit(TraceEvent{common::Tick{0},
+                        robot_name_of(entry->id()),
+                        "route",
+                        {{"nodes", route_summary(entry->current_route(), base_.graph())},
+                         {"cost", entry->current_route().cost}}});
+    }
+}
+
+network::EndpointId ScenarioRunner::target_endpoint(std::size_t target_index) const {
+    if (target_index < scenario_.robots.size()) {
+        return scenario_.robots[target_index].endpoint;
+    }
+    return scenario_.station_endpoint;
+}
+
+std::string ScenarioRunner::target_name(std::size_t target_index) const {
+    if (target_index < scenario_.robots.size()) {
+        return scenario_.robots[target_index].name;
+    }
+    return "station";
+}
+
+void ScenarioRunner::wire_delivery_handler(std::size_t index) {
+    const std::string name = scenario_.robots[index].name;
+    network_->add_endpoint(
+        scenario_.robots[index].endpoint,
+        [this, index, name](network::EndpointId from, const map::MapDelta& delta) {
+            robot::Robot& receiver = *robots_[index];
+            const planning::Route route_before = receiver.current_route();
+            const map::ReconcileDecision decision = receiver.receive(delta);
+
+            TraceEvent delivery;
+            delivery.at = queue_->clock().now();
+            delivery.source = name;
+            delivery.type = "delivery";
+            delivery.fields.emplace_back("from", static_cast<std::int64_t>(from.value()));
+            emit(std::move(delivery));
+
+            TraceEvent reconcile;
+            reconcile.at = queue_->clock().now();
+            reconcile.source = name;
+            reconcile.type = "reconcile";
+            reconcile.fields.emplace_back("decision", decision_name(decision));
+            emit(std::move(reconcile));
+
+            if (receiver.current_route() != route_before) {
+                emit(TraceEvent{queue_->clock().now(),
+                                name,
+                                "route",
+                                {{"nodes",
+                                  route_summary(receiver.current_route(), base_.graph())},
+                                 {"cost", receiver.current_route().cost}}});
+            }
+        });
+}
+
+void ScenarioRunner::schedule_events() {
+    for (const ScenarioEvent& event : scenario_.events) {
+        queue_->schedule(event.at, [this, event]() {
+            if (const SetLinkAction* set_link = std::get_if<SetLinkAction>(&event.action)) {
+                network_->set_link_state(set_link->from, set_link->to, set_link->up);
+                emit(TraceEvent{event.at,
+                                "world",
+                                "link_state",
+                                {{"from", static_cast<std::int64_t>(set_link->from.value())},
+                                 {"to", static_cast<std::int64_t>(set_link->to.value())},
+                                 {"up", set_link->up}}});
+            } else if (const ObserveEdgeAction* observation =
+                           std::get_if<ObserveEdgeAction>(&event.action)) {
+                const robot::ObservationResult result =
+                    robots_[index_of_robot(observation->robot)]
+                        ->observe(observation->edge, observation->status, event.at,
+                                  observation->confidence);
+                emit(TraceEvent{
+                    event.at,
+                    robot_name_of(observation->robot),
+                    "observation",
+                    {{"edge", edge_label(observation->edge)},
+                     {"status",
+                      std::string{observation->status == map::EdgeStatus::Blocked ? "BLOCKED"
+                                                                                  : "OPEN"}},
+                     {"decision", decision_name(result.local_decision)},
+                     {"replanned", result.replanned}}});
+            } else if (const ResynchronizeAction* resync =
+                           std::get_if<ResynchronizeAction>(&event.action)) {
+                const std::size_t count =
+                    robots_[index_of_robot(resync->robot)]->resynchronize();
+                emit(TraceEvent{event.at,
+                                robot_name_of(resync->robot),
+                                "resynchronize",
+                                {{"deltas", static_cast<std::int64_t>(count)}}});
+            }
+        });
+    }
+}
+
+ScenarioRunner::Result ScenarioRunner::run_to_completion() {
+    wire_world();
+    schedule_events();
+    queue_->run_to_completion();
+    return Result{resolved_seed_, queue_->clock().now(), robots_.size(), scenario_.has_station};
+}
+
+}  // namespace fleet::scenario
