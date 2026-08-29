@@ -126,6 +126,33 @@ using json = nlohmann::json;
     return movement;
 }
 
+// Sensing settings (ADR-011): presence of the "sensing" object enables
+// position-based sensing; "mode" names the observation model ("none" is
+// the explicit off value). World evolution is INDEPENDENT of sensing
+// configuration: set_world_edge_state is valid without any sensor, and
+// robots simply remain unaware of what they cannot observe.
+[[nodiscard]] fleet::scenario::SensingSettings parse_sensing(const json& root) {
+    fleet::scenario::SensingSettings sensing;
+    const auto entry = root.find("sensing");
+    if (entry == root.end()) {
+        return sensing;  // absent = no sensing
+    }
+    if (!entry->is_object()) {
+        throw load_error("'sensing' must be an object");
+    }
+    const std::string mode = require_string(*entry, "mode", "sensing");
+    if (mode == "none") {
+        return sensing;  // explicitly off
+    }
+    if (mode != "perfect_local") {
+        throw load_error(
+            std::format("sensing: unknown mode '{}' (supported: none, perfect_local)",
+                        mode));
+    }
+    sensing.enabled = true;
+    return sensing;
+}
+
 [[nodiscard]] network::NetworkConfig parse_network(const json& root) {
     network::NetworkConfig config;
     const auto entry = root.find("network");
@@ -223,9 +250,30 @@ void parse_events(const map::BaseMap& base, Scenario& scenario,
                 common::Tick{at},
                 ResynchronizeAction{
                     .robot = robot_named(require_string(entry, "robot", "event"))}});
+        } else if (action == "set_world_edge_state") {
+            // Valid regardless of sensing: the world evolves
+            // independently of whether anyone can observe it (ADR-011);
+            // without a sensor, robots simply remain unaware.
+            const std::string state = require_string(entry, "state", "event");
+            map::EdgeStatus status{};
+            if (state == "open") {
+                status = map::EdgeStatus::Open;
+            } else if (state == "blocked") {
+                status = map::EdgeStatus::Blocked;
+            } else {
+                throw load_error(std::format(
+                    "event: invalid state '{}' (expected 'open' or 'blocked')", state));
+            }
+            scenario.events.push_back(ScenarioEvent{
+                common::Tick{at},
+                SetWorldEdgeStateAction{
+                    .edge = edge_named(base.graph(),
+                                       require_string(entry, "edge", "event")),
+                    .status = status}});
         } else {
             throw load_error(std::format(
-                "unknown action '{}' (supported: set_link_state, observe_edge, resynchronize)",
+                "unknown action '{}' (supported: set_link_state, observe_edge, "
+                "resynchronize, set_world_edge_state)",
                 action));
         }
     }
@@ -246,6 +294,7 @@ void parse_events(const map::BaseMap& base, Scenario& scenario,
     }
     scenario.network = parse_network(root);
     scenario.movement = parse_movement(root);
+    scenario.sensing = parse_sensing(root);
     if (const auto duration = root.find("duration_ms"); duration != root.end()) {
         if (!duration->is_number_unsigned()) {
             throw load_error("'duration_ms' must be a non-negative integer (ms)");

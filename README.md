@@ -41,7 +41,9 @@ Currently implemented:
 - declarative JSON scenarios, `--scenario/--seed/--trace` CLI;
 - deterministic structured trace (console + JSONL);
 - robot movement with replan-from-position and mission completion
-  (ADR-010).
+  (ADR-010);
+- world ground truth + position-based sensing behind a strict
+  truth→sensor→belief boundary (ADR-011).
 
 See:
 
@@ -116,5 +118,5 @@ overrides the documented default `0`; the resolved seed is logged in the
 first trace events. Same scenario + same resolved seed produce a
 byte-identical trace. Scenario format and trace contract: ADR-009;
 movement semantics (`movement` + `duration_ms` keys): ADR-010 — see
-`scenarios/delivery_reroute.json` for a moving robot that reroutes
-mid-edge.
+`scenarios/delivery_reroute.json` (scripted reroute) and
+`scenarios/world_sensing.json` (physical sensing, ADR-011).

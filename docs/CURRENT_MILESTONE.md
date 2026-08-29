@@ -44,8 +44,13 @@ agreed after M1:
    robots walk their routes, reroute from where they are, park and retry
    when the goal is unreachable, and complete missions; movement is
    scenario opt-in with a mandatory duration horizon.
-2. #11 — world ground truth + position-based sensing (the world, not
-   the scenario script, tells a robot what its edges look like).
+2. **#11 — world ground truth + position-based sensing** (ADR-011) —
+   `set_world_edge_state` describes what happened, independent of any
+   sensing configuration; a `PerfectLocalEdgeSensor` (pure perception:
+   visible truth incident to the occupied node, no belief input) is the
+   only path from truth to robot knowledge, with unchanged-fact
+   suppression in the runner; `observe_edge` remains a low-level testing
+   primitive.
 3. #12 — map importer (OSM PBF → BaseMap + debug GeoJSON; activates
    docs/geospatial.md G1) and trace → GeoJSON exporters (G2).
 4. #13 — interactive console over the runner.
@@ -81,14 +86,18 @@ clock, no sensor noise models before #11 defines them.
 - deterministic structured trace (console + JSONL);
 - robot movement: `RobotState`, committed edge traversals, replan from
   position/in-transit destination, park-and-retry, mission completion
-  (ADR-010).
+  (ADR-010);
+- world ground truth + position-based sensing with a strict
+  truth→sensor→belief boundary; `set_world_edge_state` scenarios
+  (ADR-011).
 
 ---
 
 ## Current objective
 
-M2, item by item (see above). Next after #10: #11 world ground truth and
-position-based sensing.
+M2, item by item (see above). #10 and #11 are complete. Next: #12 map
+importer (OSM PBF → BaseMap + debug GeoJSON; activates
+docs/geospatial.md G1) and trace → GeoJSON exporters (G2).
 
 ---
 

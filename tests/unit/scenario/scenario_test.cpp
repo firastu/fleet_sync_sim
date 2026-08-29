@@ -385,6 +385,63 @@ TEST_F(ScenarioTest, RejectsNegativeDuration) {
     EXPECT_THROW(load(json), std::invalid_argument);
 }
 
+TEST_F(ScenarioTest, ParsesSensingMode) {
+    const Scenario scenario = load(R"json({
+      "name": "sensing",
+      "sensing": {"mode": "perfect_local"},
+      "robots": [{"name": "r", "id": 1, "endpoint": 1,
+        "mission": {"start": "A", "goal": "D"}}],
+      "events": [
+        {"at_ms": 100, "action": "set_world_edge_state", "edge": "C-D", "state": "blocked"}
+      ]
+    })json");
+
+    ASSERT_TRUE(scenario.sensing.enabled);
+    ASSERT_EQ(scenario.events.size(), 1U);
+    const auto* world_change =
+        std::get_if<fleet::scenario::SetWorldEdgeStateAction>(&scenario.events[0].action);
+    ASSERT_NE(world_change, nullptr);
+    EXPECT_EQ(world_change->edge,
+              *grid_.base.graph().edge_between(grid_.node("C"), grid_.node("D")));
+    EXPECT_EQ(world_change->status, fleet::map::EdgeStatus::Blocked);
+}
+
+TEST_F(ScenarioTest, AbsentSensingMeansNoSensing) {
+    const Scenario scenario = load(minimal_json());
+    EXPECT_FALSE(scenario.sensing.enabled);
+}
+
+TEST_F(ScenarioTest, ExplicitSensingNoneIsTheDocumentedOffState) {
+    // "mode": "none" is valid and explicit: world changes are accepted,
+    // nobody observes them (ADR-011: world evolution is independent of
+    // sensing configuration).
+    const Scenario scenario = load(R"json({
+      "name": "blind_world",
+      "sensing": {"mode": "none"},
+      "robots": [{"name": "r", "id": 1, "endpoint": 1,
+        "mission": {"start": "C", "goal": "D"}}],
+      "events": [
+        {"at_ms": 100, "action": "set_world_edge_state", "edge": "C-D", "state": "blocked"}
+      ]
+    })json");
+    EXPECT_FALSE(scenario.sensing.enabled);
+    ASSERT_EQ(scenario.events.size(), 1U);
+    EXPECT_NE(std::get_if<fleet::scenario::SetWorldEdgeStateAction>(
+                  &scenario.events[0].action),
+              nullptr);
+}
+
+TEST_F(ScenarioTest, RejectsUnknownSensingMode) {
+    const std::string json = R"json({
+      "name": "x",
+      "sensing": {"mode": "lidar_360"},
+      "robots": [{"name": "r", "id": 1, "endpoint": 1,
+        "mission": {"start": "A", "goal": "D"}}],
+      "events": []
+    })json";
+    EXPECT_THROW(load(json), std::invalid_argument);
+}
+
 // --- trace sinks: deterministic formatting over the same events -------------
 
 TEST(TraceSinkTest, ConsoleSinkFormatsOneLinePerEvent) {

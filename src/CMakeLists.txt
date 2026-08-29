@@ -73,6 +73,15 @@ add_library(fleet::station ALIAS fleet_station)
 target_link_libraries(fleet_station PUBLIC fleet::map)
 fleet_target_warnings(fleet_station)
 
+# Simulation ground truth + the observation boundary between world truth
+# and robot belief (ADR-011).
+add_library(fleet_world STATIC
+  world/world.cpp
+  world/observation_model.cpp)
+add_library(fleet::world ALIAS fleet_world)
+target_link_libraries(fleet_world PUBLIC fleet::robot fleet::map)
+fleet_target_warnings(fleet_world)
+
 # Scenario runner + deterministic structured trace: wiring and scheduling
 # over existing public APIs only (ADR-009). The JSON parser is PRIVATE to
 # the loader; everything downstream consumes typed Scenario data.
@@ -84,6 +93,6 @@ add_library(fleet::scenario ALIAS fleet_scenario)
 target_include_directories(fleet_scenario PUBLIC
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 target_link_libraries(fleet_scenario
-  PUBLIC fleet::robot fleet::network fleet::station
+  PUBLIC fleet::robot fleet::network fleet::station fleet::world
   PRIVATE nlohmann_json::nlohmann_json)
 fleet_target_warnings(fleet_scenario)

@@ -59,11 +59,9 @@ seed)`:
   network, station, reconciliation, or planning logic.
 - **Observation is read-only:** trace sinks and future exporters
   observe; they never influence a run.
-- **World truth (boundary planned with milestone M2):** simulation
-  ground truth is never directly accessible to robots — only through an
-  observation model. The durable contract will be recorded when the
-  world/sensing commit lands; do not couple robots to world state in
-  the meantime.
+- **World truth (ADR-011):** simulation ground truth is never directly
+  accessible to robots — only through an observation model. Robots do
+  not depend on `fleet::world` in any direction.
 
 ## 5. Build and validation discipline
 

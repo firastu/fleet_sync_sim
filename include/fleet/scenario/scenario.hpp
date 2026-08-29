@@ -40,7 +40,7 @@ struct ScenarioRobot {
 };
 
 // Actions are deliberately limited to semantics that already exist
-// (ADR-001..ADR-008). New actions arrive with the commits that add the
+// (ADR-001..ADR-011). New actions arrive with the commits that add the
 // underlying semantics — never before.
 struct SetLinkAction {
     network::EndpointId from{};
@@ -59,7 +59,18 @@ struct ResynchronizeAction {
     common::RobotId robot{};
 };
 
-using ScenarioAction = std::variant<SetLinkAction, ObserveEdgeAction, ResynchronizeAction>;
+// A world ground-truth change (ADR-011): what actually happened, as
+// opposed to observe_edge, which tells a robot what it observed. Valid
+// regardless of sensing configuration — the world evolves independently
+// of observers; without a sensor, robots remain unaware.
+struct SetWorldEdgeStateAction {
+    common::EdgeId edge{};
+    map::EdgeStatus status = map::EdgeStatus::Open;
+};
+
+using ScenarioAction =
+    std::variant<SetLinkAction, ObserveEdgeAction, ResynchronizeAction,
+                 SetWorldEdgeStateAction>;
 
 struct ScenarioEvent {
     common::Tick at{};
@@ -76,6 +87,15 @@ struct MovementSettings {
     std::uint64_t retry_ms = 1000;
 };
 
+// Position-based sensing is scenario opt-in (ADR-011). One mode exists in
+// Stage 0: "perfect_local" (PerfectLocalEdgeSensor). Sensing triggers:
+// at every world truth change (robots in range) and at every movement
+// arrival. Direct observation injection (observe_edge) remains available
+// as a low-level testing primitive regardless.
+struct SensingSettings {
+    bool enabled = false;
+};
+
 // Declarative description of one deterministic simulation run. Pure data:
 // no wiring, no scheduling, no domain behavior. Execution order of equal-tick
 // events is file order (guaranteed by the loader's stable sort and ADR-005's
@@ -85,6 +105,7 @@ struct Scenario {
     std::optional<std::uint64_t> seed;  // file-declared; CLI overrides
     network::NetworkConfig network{};
     MovementSettings movement{};             // opt-in (ADR-010)
+    SensingSettings sensing{};               // opt-in (ADR-011)
     std::optional<std::uint64_t> duration_ms;  // run horizon; required by movement
     bool has_station = false;
     network::EndpointId station_endpoint{};

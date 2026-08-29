@@ -14,6 +14,8 @@
 #include "fleet/scenario/scenario.hpp"
 #include "fleet/scenario/trace.hpp"
 #include "fleet/station/control_station.hpp"
+#include "fleet/world/observation_model.hpp"
+#include "fleet/world/world.hpp"
 
 namespace fleet::simulation {
 class EventQueue;
@@ -86,6 +88,7 @@ private:
     void wire_delivery_handler(std::size_t index);
     void schedule_events();
     void advance_robot(std::size_t index);
+    void sense_for(std::size_t index, common::Tick now);
 
     [[nodiscard]] std::size_t index_of_robot(std::string_view name) const;
     [[nodiscard]] std::size_t index_of_robot(common::RobotId id) const;
@@ -103,6 +106,8 @@ private:
 
     std::unique_ptr<simulation::EventQueue> queue_;
     std::unique_ptr<network::NetworkSimulator> network_;
+    std::unique_ptr<world::World> world_;
+    std::unique_ptr<world::ObservationModel> sensor_;  // set when sensing enabled
     std::vector<std::unique_ptr<robot::Robot>> robots_;
     std::unique_ptr<station::ControlStation> station_;
 };

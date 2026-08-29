@@ -9,7 +9,10 @@
 #include "fleet/map/graph.hpp"
 #include "fleet/map/map_delta.hpp"
 #include "fleet/network/network_simulator.hpp"
+#include "fleet/scenario/scenario.hpp"
 #include "fleet/simulation/event_queue.hpp"
+#include "fleet/world/observation_model.hpp"
+#include "fleet/world/world.hpp"
 
 namespace fleet::scenario {
 
@@ -126,6 +129,10 @@ void ScenarioRunner::wire_world() {
     queue_ = std::make_unique<simulation::EventQueue>();
     network_ =
         std::make_unique<network::NetworkSimulator>(*queue_, scenario_.network, resolved_seed_);
+    world_ = std::make_unique<world::World>(base_);
+    if (scenario_.sensing.enabled) {
+        sensor_ = std::make_unique<world::PerfectLocalEdgeSensor>();
+    }
     if (scenario_.has_station) {
         station_ = std::make_unique<station::ControlStation>(base_);
     }
@@ -290,6 +297,25 @@ void ScenarioRunner::schedule_events() {
                                 robot_name_of(resync->robot),
                                 "resynchronize",
                                 {{"deltas", static_cast<std::int64_t>(count)}}});
+            } else if (const SetWorldEdgeStateAction* world_change =
+                           std::get_if<SetWorldEdgeStateAction>(&event.action)) {
+                // What actually happened (ADR-011): truth first, then
+                // every robot senses in declaration order.
+                world_->set_edge_state(world_change->edge, world_change->status);
+                emit(TraceEvent{event.at,
+                                "world",
+                                "world_edge",
+                                {{"edge", edge_label(world_change->edge)},
+                                 {"status",
+                                  std::string{world_change->status ==
+                                                      map::EdgeStatus::Blocked
+                                                  ? "BLOCKED"
+                                                  : "OPEN"}}}});
+                if (sensor_) {
+                    for (std::size_t index = 0; index < robots_.size(); ++index) {
+                        sense_for(index, event.at);
+                    }
+                }
             }
         });
     }
@@ -311,6 +337,9 @@ void ScenarioRunner::advance_robot(std::size_t index) {
             return;  // chain ends
         }
         emit(TraceEvent{now, name, "arrival", {{"node", node_name(robot.state().position)}}});
+        // Sensing (ADR-011): a robot at a node sees its incident edges'
+        // truth; a sensed change may replan before the next departure.
+        sense_for(index, now);
     }
 
     const std::optional<robot::RobotTransit> transit =
@@ -334,6 +363,44 @@ void ScenarioRunner::advance_robot(std::size_t index) {
         // (ADR-010).
         queue_->schedule(now + scenario_.movement.retry_ms,
                          [this, index] { advance_robot(index); });
+    }
+}
+
+void ScenarioRunner::sense_for(std::size_t index, common::Tick now) {
+    if (!sensor_) {
+        return;
+    }
+    robot::Robot& robot = *robots_[index];
+    const std::string name = robot_name_of(robot.id());
+    for (const world::EdgeObservation& observation :
+         sensor_->sense(*world_, robot.state())) {
+        // Unchanged-fact suppression (ADR-011): the sensor MEASURES, the
+        // coordinator decides what is new. A measurement matching the
+        // robot's believed status (untracked = the base-map default,
+        // open) is not forwarded — the M2 observation processor; a real
+        // processor (filtering, accumulation) replaces this check later
+        // without touching the sensor contract.
+        const map::EdgeDynamicState* known = robot.overlay().find(observation.edge);
+        const map::EdgeStatus believed =
+            known == nullptr ? map::EdgeStatus::Open : known->status;
+        if (believed == observation.status) {
+            continue;
+        }
+        const robot::ObservationResult result =
+            robot.observe(observation.edge, observation.status, now);
+        // Sensor-generated observations carry origin=sensor so the
+        // physical path stays distinguishable from scripted injection
+        // (which has no origin field — ADR-011).
+        emit(TraceEvent{
+            now,
+            name,
+            "observation",
+            {{"edge", edge_label(observation.edge)},
+             {"status",
+              std::string{observation.status == map::EdgeStatus::Blocked ? "BLOCKED" : "OPEN"}},
+             {"decision", decision_name(result.local_decision)},
+             {"replanned", result.replanned},
+             {"origin", std::string{"sensor"}}}});
     }
 }
 

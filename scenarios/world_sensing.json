@@ -1,0 +1,29 @@
+{
+  "name": "world_sensing",
+  "seed": 11,
+  "network": {
+    "min_latency_ms": 80,
+    "max_latency_ms": 80
+  },
+  "movement": {
+    "ms_per_cost_unit": 1000
+  },
+  "sensing": {
+    "mode": "perfect_local"
+  },
+  "duration_ms": 10000,
+  "station": {
+    "endpoint": 2
+  },
+  "robots": [
+    {
+      "name": "robot_a",
+      "id": 1,
+      "endpoint": 1,
+      "mission": { "start": "A", "goal": "D" }
+    }
+  ],
+  "events": [
+    { "at_ms": 1500, "action": "set_world_edge_state", "edge": "C-D", "state": "blocked" }
+  ]
+}
