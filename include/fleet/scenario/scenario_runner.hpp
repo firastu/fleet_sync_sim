@@ -10,6 +10,7 @@
 #include "fleet/map/base_map.hpp"
 #include "fleet/network/endpoint_id.hpp"
 #include "fleet/robot/robot.hpp"
+#include "fleet/robot/robot_state.hpp"
 #include "fleet/scenario/scenario.hpp"
 #include "fleet/scenario/trace.hpp"
 #include "fleet/station/control_station.hpp"
@@ -84,6 +85,7 @@ private:
     void wire_world();
     void wire_delivery_handler(std::size_t index);
     void schedule_events();
+    void advance_robot(std::size_t index);
 
     [[nodiscard]] std::size_t index_of_robot(std::string_view name) const;
     [[nodiscard]] std::size_t index_of_robot(common::RobotId id) const;
@@ -91,6 +93,7 @@ private:
     [[nodiscard]] std::string target_name(std::size_t target_index) const;
     [[nodiscard]] network::EndpointId target_endpoint(std::size_t target_index) const;
     [[nodiscard]] std::string edge_label(common::EdgeId edge) const;
+    [[nodiscard]] std::string node_name(common::NodeId node) const;
 
     const map::BaseMap& base_;
     Scenario scenario_;

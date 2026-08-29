@@ -1,6 +1,7 @@
 #include "fleet/robot/robot.hpp"
 
 #include <cassert>
+#include <cmath>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -16,6 +17,8 @@ Robot::Robot(common::RobotId id, Mission mission, const map::BaseMap& base, Delt
       sink_{std::move(sink)},
       overlay_{base.graph().edge_count()},
       reconciler_{base.graph().edge_count()} {
+    state_.position = mission_.start;
+    state_.mission_complete = mission_.start == mission_.goal;
     plan_current_route();
 }
 
@@ -122,9 +125,52 @@ Robot::ReconcileOutcome Robot::reconcile_and_maybe_replan(const map::MapDelta& d
 }
 
 void Robot::plan_current_route() {
-    // The view borrows this robot's own members and exists only for the
-    // planning call (cheap value object, never cached across changes).
-    route_ = planner_.plan(map::MapView{base_, overlay_}, mission_.start, mission_.goal);
+    // Replans start from the effective start (ADR-010): the destination
+    // of the in-progress traversal while in transit (a committed traversal
+    // is never re-decided), otherwise the robot's current position.
+    const common::NodeId start =
+        state_.in_transit.has_value() ? state_.in_transit->to : state_.position;
+    route_ = planner_.plan(map::MapView{base_, overlay_}, start, mission_.goal);
+}
+
+std::optional<RobotTransit> Robot::begin_transit(common::Tick at,
+                                                 std::uint64_t ms_per_cost_unit) {
+    if (state_.in_transit.has_value() || state_.mission_complete || !route_.found ||
+        route_.edges.empty()) {
+        return std::nullopt;
+    }
+    const common::EdgeId edge = route_.edges.front();
+    const map::MapView view{base_, overlay_};
+    const std::optional<double> cost = view.traversal_cost(edge);
+    if (!cost.has_value()) {
+        // Route invariant makes this unreachable (routes are planned on
+        // this overlay); defended anyway — a blocked departure is not
+        // committed.
+        return std::nullopt;
+    }
+    const double ticks_real =
+        std::ceil(*cost * static_cast<double>(ms_per_cost_unit));
+    const std::uint64_t ticks =
+        ticks_real >= 1.0 ? static_cast<std::uint64_t>(ticks_real) : std::uint64_t{1};
+    RobotTransit transit{edge, route_.nodes.front(),
+                         route_.nodes[1], at + ticks};
+    state_.in_transit = transit;
+    return transit;
+}
+
+bool Robot::complete_transit() {
+    if (!state_.in_transit.has_value()) {
+        throw std::runtime_error("Robot::complete_transit: robot is not in transit");
+    }
+    // Physically committed: the traversal finishes regardless of what the
+    // robot learned about the edge while on it (ADR-010).
+    state_.position = state_.in_transit->to;
+    state_.in_transit.reset();
+    if (state_.position == mission_.goal) {
+        state_.mission_complete = true;
+    }
+    plan_current_route();
+    return state_.mission_complete;
 }
 
 }  // namespace fleet::robot

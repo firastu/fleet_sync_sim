@@ -99,6 +99,33 @@ using json = nlohmann::json;
     return *edge;
 }
 
+// Movement settings (ADR-010): presence of the "movement" object enables
+// movement; both fields are optional with documented defaults.
+[[nodiscard]] fleet::scenario::MovementSettings parse_movement(const json& root) {
+    fleet::scenario::MovementSettings movement;
+    const auto entry = root.find("movement");
+    if (entry == root.end()) {
+        return movement;  // absent = static fleet
+    }
+    if (!entry->is_object()) {
+        throw load_error("'movement' must be an object");
+    }
+    movement.enabled = true;
+    if (const auto per_cost = entry->find("ms_per_cost_unit"); per_cost != entry->end()) {
+        if (!per_cost->is_number_unsigned() || per_cost->get<std::uint64_t>() == 0) {
+            throw load_error("movement: 'ms_per_cost_unit' must be a positive integer");
+        }
+        movement.ms_per_cost_unit = per_cost->get<std::uint64_t>();
+    }
+    if (const auto retry = entry->find("retry_ms"); retry != entry->end()) {
+        if (!retry->is_number_unsigned() || retry->get<std::uint64_t>() == 0) {
+            throw load_error("movement: 'retry_ms' must be a positive integer");
+        }
+        movement.retry_ms = retry->get<std::uint64_t>();
+    }
+    return movement;
+}
+
 [[nodiscard]] network::NetworkConfig parse_network(const json& root) {
     network::NetworkConfig config;
     const auto entry = root.find("network");
@@ -218,6 +245,18 @@ void parse_events(const map::BaseMap& base, Scenario& scenario,
         scenario.seed = seed->get<std::uint64_t>();
     }
     scenario.network = parse_network(root);
+    scenario.movement = parse_movement(root);
+    if (const auto duration = root.find("duration_ms"); duration != root.end()) {
+        if (!duration->is_number_unsigned()) {
+            throw load_error("'duration_ms' must be a non-negative integer (ms)");
+        }
+        scenario.duration_ms = duration->get<std::uint64_t>();
+    }
+    if (scenario.movement.enabled && !scenario.duration_ms.has_value()) {
+        // Termination guarantee (ADR-010): a robot whose goal becomes
+        // unreachable parks and retries forever; the horizon bounds the run.
+        throw load_error("movement: 'movement' requires 'duration_ms' to bound the run");
+    }
 
     if (const auto station = root.find("station"); station != root.end()) {
         scenario.has_station = true;

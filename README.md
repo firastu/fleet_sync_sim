@@ -39,7 +39,9 @@ Currently implemented:
 - reconnect synchronization by idempotent re-announcement;
 - autonomous robot-local knowledge and rerouting;
 - declarative JSON scenarios, `--scenario/--seed/--trace` CLI;
-- deterministic structured trace (console + JSONL).
+- deterministic structured trace (console + JSONL);
+- robot movement with replan-from-position and mission completion
+  (ADR-010).
 
 See:
 
@@ -112,4 +114,7 @@ per-process workaround only).
 Seed precedence: `--seed` overrides the scenario file's `seed`, which
 overrides the documented default `0`; the resolved seed is logged in the
 first trace events. Same scenario + same resolved seed produce a
-byte-identical trace. Scenario format and trace contract: ADR-009.
+byte-identical trace. Scenario format and trace contract: ADR-009;
+movement semantics (`movement` + `duration_ms` keys): ADR-010 — see
+`scenarios/delivery_reroute.json` for a moving robot that reroutes
+mid-edge.

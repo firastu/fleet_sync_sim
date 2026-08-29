@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <format>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 
@@ -49,7 +50,19 @@ namespace {
 
 ScenarioRunner::ScenarioRunner(const map::BaseMap& base, Scenario scenario,
                                std::uint64_t resolved_seed)
-    : base_{base}, scenario_{std::move(scenario)}, resolved_seed_{resolved_seed} {}
+    : base_{base}, scenario_{std::move(scenario)}, resolved_seed_{resolved_seed} {
+    // No zero-time self-scheduling loops (ADR-010): every advance-chain
+    // event must land strictly later than its predecessor. The loader
+    // enforces this for files; the constructor is the single choke point
+    // that also covers programmatically constructed scenarios. Traversal
+    // ticks are additionally guaranteed >= 1 inside Robot::begin_transit
+    // (base costs are strictly positive by a graph invariant).
+    if (scenario_.movement.enabled &&
+        (scenario_.movement.ms_per_cost_unit == 0 || scenario_.movement.retry_ms == 0)) {
+        throw std::invalid_argument(
+            "ScenarioRunner: movement ms_per_cost_unit and retry_ms must be >= 1");
+    }
+}
 
 ScenarioRunner::~ScenarioRunner() = default;
 
@@ -103,6 +116,10 @@ std::string ScenarioRunner::edge_label(common::EdgeId edge) const {
     const map::Edge& base_edge = base_.graph().edge(edge);
     return std::format("{}-{}", base_.graph().node(base_edge.a).name,
                        base_.graph().node(base_edge.b).name);
+}
+
+std::string ScenarioRunner::node_name(common::NodeId node) const {
+    return std::string{base_.graph().node(node).name};
 }
 
 void ScenarioRunner::wire_world() {
@@ -179,6 +196,14 @@ void ScenarioRunner::wire_world() {
                         "route",
                         {{"nodes", route_summary(entry->current_route(), base_.graph())},
                          {"cost", entry->current_route().cost}}});
+    }
+
+    // Movement (ADR-010): one self-rescheduling advance chain per robot.
+    // The runner owns the scheduling; the robot owns the semantics.
+    if (scenario_.movement.enabled) {
+        for (std::size_t index = 0; index < robots_.size(); ++index) {
+            queue_->schedule(common::Tick{0}, [this, index] { advance_robot(index); });
+        }
     }
 }
 
@@ -270,10 +295,58 @@ void ScenarioRunner::schedule_events() {
     }
 }
 
+void ScenarioRunner::advance_robot(std::size_t index) {
+    robot::Robot& robot = *robots_[index];
+    const common::Tick now = queue_->clock().now();
+    const std::string name = robot_name_of(robot.id());
+
+    if (robot.state().in_transit.has_value()) {
+        // This event is the arrival: commit the traversal.
+        const bool mission_complete = robot.complete_transit();
+        if (mission_complete) {
+            emit(TraceEvent{now,
+                            name,
+                            "mission_complete",
+                            {{"goal", node_name(robot.mission().goal)}}});
+            return;  // chain ends
+        }
+        emit(TraceEvent{now, name, "arrival", {{"node", node_name(robot.state().position)}}});
+    }
+
+    const std::optional<robot::RobotTransit> transit =
+        robot.begin_transit(now, scenario_.movement.ms_per_cost_unit);
+    if (transit.has_value()) {
+        emit(TraceEvent{now,
+                        name,
+                        "departure",
+                        {{"edge", edge_label(transit->edge)},
+                         {"from", node_name(transit->from)},
+                         {"to", node_name(transit->to)},
+                         {"arrival", static_cast<std::int64_t>(transit->arrival.value)}}});
+        queue_->schedule(transit->arrival, [this, index] { advance_robot(index); });
+        return;
+    }
+
+    if (!robot.state().mission_complete) {
+        // No usable route (goal unreachable under current knowledge):
+        // park and retry on the fixed cadence. Knowledge changes do not
+        // wake the robot — movement advances only at chain events
+        // (ADR-010).
+        queue_->schedule(now + scenario_.movement.retry_ms,
+                         [this, index] { advance_robot(index); });
+    }
+}
+
 ScenarioRunner::Result ScenarioRunner::run_to_completion() {
     wire_world();
     schedule_events();
-    queue_->run_to_completion();
+    if (scenario_.duration_ms.has_value()) {
+        // Bounded horizon (ADR-010): events beyond the horizon never run;
+        // the clock lands exactly on the horizon.
+        queue_->run_until(common::Tick{*scenario_.duration_ms});
+    } else {
+        queue_->run_to_completion();
+    }
     return Result{resolved_seed_, queue_->clock().now(), robots_.size(), scenario_.has_station};
 }
 

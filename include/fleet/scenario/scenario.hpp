@@ -66,6 +66,16 @@ struct ScenarioEvent {
     ScenarioAction action{};
 };
 
+// Movement is scenario opt-in (ADR-010): absent = static fleet (the
+// founding scenario's behavior is unchanged). Traversal time of one edge
+// is ceil(effective_cost * ms_per_cost_unit) ticks; a robot with no
+// usable route parks and retries every retry_ms ticks.
+struct MovementSettings {
+    bool enabled = false;
+    std::uint64_t ms_per_cost_unit = 1000;
+    std::uint64_t retry_ms = 1000;
+};
+
 // Declarative description of one deterministic simulation run. Pure data:
 // no wiring, no scheduling, no domain behavior. Execution order of equal-tick
 // events is file order (guaranteed by the loader's stable sort and ADR-005's
@@ -74,6 +84,8 @@ struct Scenario {
     std::string name;
     std::optional<std::uint64_t> seed;  // file-declared; CLI overrides
     network::NetworkConfig network{};
+    MovementSettings movement{};             // opt-in (ADR-010)
+    std::optional<std::uint64_t> duration_ms;  // run horizon; required by movement
     bool has_station = false;
     network::EndpointId station_endpoint{};
     std::vector<ScenarioRobot> robots;  // declaration order = fan-out order

@@ -312,6 +312,79 @@ TEST_F(ScenarioTest, RejectsUnreadableFile) {
                  std::invalid_argument);
 }
 
+TEST_F(ScenarioTest, ParsesMovementAndDuration) {
+    const Scenario scenario = load(R"json({
+      "name": "moving",
+      "movement": {"ms_per_cost_unit": 250, "retry_ms": 500},
+      "duration_ms": 60000,
+      "robots": [{"name": "r", "id": 1, "endpoint": 1,
+        "mission": {"start": "A", "goal": "D"}}],
+      "events": []
+    })json");
+
+    ASSERT_TRUE(scenario.movement.enabled);
+    EXPECT_EQ(scenario.movement.ms_per_cost_unit, std::uint64_t{250});
+    EXPECT_EQ(scenario.movement.retry_ms, std::uint64_t{500});
+    ASSERT_TRUE(scenario.duration_ms.has_value());
+    EXPECT_EQ(*scenario.duration_ms, std::uint64_t{60000});
+}
+
+TEST_F(ScenarioTest, AbsentMovementMeansStaticFleet) {
+    const Scenario scenario = load(minimal_json());
+    EXPECT_FALSE(scenario.movement.enabled);
+    EXPECT_FALSE(scenario.duration_ms.has_value());
+    // Defaults are documented, not guessed.
+    EXPECT_EQ(scenario.movement.ms_per_cost_unit, std::uint64_t{1000});
+    EXPECT_EQ(scenario.movement.retry_ms, std::uint64_t{1000});
+}
+
+TEST_F(ScenarioTest, RejectsMovementWithoutDuration) {
+    const std::string json = R"json({
+      "name": "x",
+      "movement": {"ms_per_cost_unit": 1000},
+      "robots": [{"name": "r", "id": 1, "endpoint": 1,
+        "mission": {"start": "A", "goal": "D"}}],
+      "events": []
+    })json";
+    EXPECT_THROW(load(json), std::invalid_argument);
+}
+
+TEST_F(ScenarioTest, RejectsZeroMovementSettings) {
+    const std::string json = R"json({
+      "name": "x",
+      "movement": {"ms_per_cost_unit": 0},
+      "duration_ms": 1000,
+      "robots": [{"name": "r", "id": 1, "endpoint": 1,
+        "mission": {"start": "A", "goal": "D"}}],
+      "events": []
+    })json";
+    EXPECT_THROW(load(json), std::invalid_argument);
+}
+
+TEST_F(ScenarioTest, RejectsZeroRetryCadence) {
+    // Zero retry would self-schedule at the same tick forever (ADR-010).
+    const std::string json = R"json({
+      "name": "x",
+      "movement": {"retry_ms": 0},
+      "duration_ms": 1000,
+      "robots": [{"name": "r", "id": 1, "endpoint": 1,
+        "mission": {"start": "A", "goal": "D"}}],
+      "events": []
+    })json";
+    EXPECT_THROW(load(json), std::invalid_argument);
+}
+
+TEST_F(ScenarioTest, RejectsNegativeDuration) {
+    const std::string json = R"json({
+      "name": "x",
+      "duration_ms": -5,
+      "robots": [{"name": "r", "id": 1, "endpoint": 1,
+        "mission": {"start": "A", "goal": "D"}}],
+      "events": []
+    })json";
+    EXPECT_THROW(load(json), std::invalid_argument);
+}
+
 // --- trace sinks: deterministic formatting over the same events -------------
 
 TEST(TraceSinkTest, ConsoleSinkFormatsOneLinePerEvent) {

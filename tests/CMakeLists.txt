@@ -24,9 +24,11 @@ add_executable(fleet_unit_tests
   unit/simulation/deterministic_rng_test.cpp
   unit/network/network_simulator_test.cpp
   unit/robot/robot_test.cpp
+  unit/robot/robot_movement_test.cpp
   unit/station/control_station_test.cpp
   unit/scenario/scenario_test.cpp
-  unit/scenario/scenario_runner_test.cpp)
+  unit/scenario/scenario_runner_test.cpp
+  unit/scenario/scenario_movement_test.cpp)
 target_include_directories(fleet_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 target_link_libraries(fleet_unit_tests PRIVATE fleet::station fleet::robot fleet::network
                                            fleet::planning fleet::scenario

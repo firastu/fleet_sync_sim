@@ -155,6 +155,21 @@ TEST(GraphBuilderTest, ExplicitCostOverridesDistance) {
     EXPECT_DOUBLE_EQ(builder.build().edge(edge).base_cost, 2.5);
 }
 
+// Foundation of the movement timing invariant (ADR-010): traversal costs
+// are strictly positive by construction, so ceil(cost * ms_per_cost_unit)
+// >= 1 for any legal speed setting and every traversal advances the clock
+// by at least one tick — no zero-time self-scheduling loops.
+TEST(GraphBuilderTest, RejectsNonPositiveCosts) {
+    Graph::Builder builder;
+    const NodeId a = builder.add_node("A", NodePosition{0.0, 0.0});
+    const NodeId b = builder.add_node("B", NodePosition{1.0, 0.0});
+    EXPECT_THROW(static_cast<void>(builder.connect(a, b, 0.0)), std::invalid_argument);
+    EXPECT_THROW(static_cast<void>(builder.connect(a, b, -1.0)), std::invalid_argument);
+    EXPECT_THROW(static_cast<void>(builder.connect(
+                      a, b, std::numeric_limits<double>::quiet_NaN())),
+                 std::invalid_argument);
+}
+
 TEST(GraphBuilderTest, BuildCanBeCalledOnlyOnce) {
     Graph::Builder builder;
     (void)builder.add_node("A", NodePosition{0.0, 0.0});

@@ -14,6 +14,7 @@
 #include "fleet/planning/a_star_planner.hpp"
 #include "fleet/planning/route.hpp"
 #include "fleet/robot/mission.hpp"
+#include "fleet/robot/robot_state.hpp"
 
 namespace fleet::robot {
 
@@ -62,9 +63,10 @@ struct ObservationResult {
 //     have become available again;
 //   - effective traversal unchanged (provenance/time refresh): no
 //     replan.
-// The route is recomputed from the mission start on current knowledge;
-// Stage 0 has no movement, so replanning from the current position
-// arrives with movement.
+// The route is recomputed from the robot's effective start — its current
+// position, or the destination of its in-progress traversal while in
+// transit (ADR-010): a robot never re-plans from a node it has already
+// left, and a committed traversal is never re-decided.
 //
 // DeltaSink exception semantics: the sink is invoked after the local
 // observation is fully committed (sequence consumed, knowledge and
@@ -107,6 +109,32 @@ public:
     [[nodiscard]] const Mission& mission() const noexcept { return mission_; }
     [[nodiscard]] const planning::Route& current_route() const noexcept { return route_; }
     [[nodiscard]] const map::DynamicMapOverlay& overlay() const noexcept { return overlay_; }
+    [[nodiscard]] const RobotState& state() const noexcept { return state_; }
+
+    // --- movement (ADR-010; driven externally, the robot owns semantics) ---
+
+    // Begins traversing the next edge of the current route. Returns
+    // nullopt (with NO state change) when the robot is already in
+    // transit, the mission is complete, or no usable route exists
+    // (route not found or empty). On success, state().in_transit holds
+    // the committed traversal and the returned copy describes it:
+    // arrival = at + ceil(effective_cost(edge) * ms_per_cost_unit).
+    // The edge is traversable under current knowledge by the route
+    // invariant (routes are planned on this robot's own overlay and
+    // replanned whenever that knowledge effectively changes).
+    [[nodiscard]] std::optional<RobotTransit> begin_transit(
+        common::Tick at, std::uint64_t ms_per_cost_unit);
+
+    // Commits the in-progress traversal: position becomes the arrival
+    // node, the transit clears, and the route is recomputed from the new
+    // position (a suffix-equivalent deterministic replan — it is NOT
+    // knowledge-driven and is not traced as a route change by callers).
+    // A traversal is physically committed: it succeeds even if the edge
+    // became blocked under newer knowledge while the robot was on it.
+    // Returns true when the mission goal was just reached (and sets
+    // state().mission_complete). Throws std::runtime_error when the
+    // robot is not in transit.
+    bool complete_transit();
 
 private:
     // Production state of one of this robot's per-edge event streams.
@@ -135,6 +163,7 @@ private:
     map::DynamicMapOverlay overlay_;
     map::MapReconciler reconciler_;
     planning::Route route_;
+    RobotState state_;  // position/mission progress (ADR-010)
     // This robot's own event streams, keyed by edge (sparse; identity is
     // (source, edge, sequence), ADR-004).
     std::unordered_map<common::EdgeId, StreamProgress> streams_;

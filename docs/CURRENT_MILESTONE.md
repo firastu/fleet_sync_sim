@@ -32,6 +32,30 @@ docs).
 
 ---
 
+## Milestone M2 — Movement, sensing and geospatial grounding
+
+Status: IN PROGRESS (opened with commit #10)
+
+M1 proved the distributed map-knowledge core on a static fleet. M2 makes
+the fleet move and grounds it in real-world data, per the gap analysis
+agreed after M1:
+
+1. **#10 — movement, `RobotState`, replan-from-position** (ADR-010) —
+   robots walk their routes, reroute from where they are, park and retry
+   when the goal is unreachable, and complete missions; movement is
+   scenario opt-in with a mandatory duration horizon.
+2. #11 — world ground truth + position-based sensing (the world, not
+   the scenario script, tells a robot what its edges look like).
+3. #12 — map importer (OSM PBF → BaseMap + debug GeoJSON; activates
+   docs/geospatial.md G1) and trace → GeoJSON exporters (G2).
+4. #13 — interactive console over the runner.
+
+Scope guard for M2: same determinism discipline as M1 — every behavior
+is a pure function of (scenario, resolved seed); no threads, no wall
+clock, no sensor noise models before #11 defines them.
+
+---
+
 ## Implemented
 
 - immutable `BaseMap`;
@@ -54,15 +78,17 @@ docs).
 - `ControlStation` aggregation and reconnect synchronization;
 - declarative JSON scenarios + `ScenarioRunner`;
 - `--scenario/--seed/--trace` CLI;
-- deterministic structured trace (console + JSONL).
+- deterministic structured trace (console + JSONL);
+- robot movement: `RobotState`, committed edge traversals, replan from
+  position/in-transit destination, park-and-retry, mission completion
+  (ADR-010).
 
 ---
 
 ## Current objective
 
-Milestone closed. Next: define M2 scope (expected to start with robot
-movement and `RobotState`, then world ground truth and position-based
-sensing) before any new implementation work.
+M2, item by item (see above). Next after #10: #11 world ground truth and
+position-based sensing.
 
 ---
 

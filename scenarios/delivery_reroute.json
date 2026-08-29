@@ -1,0 +1,27 @@
+{
+  "name": "delivery_reroute",
+  "seed": 7,
+  "network": {
+    "min_latency_ms": 80,
+    "max_latency_ms": 80
+  },
+  "movement": {
+    "ms_per_cost_unit": 1000,
+    "retry_ms": 1000
+  },
+  "duration_ms": 10000,
+  "station": {
+    "endpoint": 2
+  },
+  "robots": [
+    {
+      "name": "robot_a",
+      "id": 1,
+      "endpoint": 1,
+      "mission": { "start": "A", "goal": "D" }
+    }
+  ],
+  "events": [
+    { "at_ms": 1500, "action": "observe_edge", "robot": "robot_a", "edge": "C-D", "state": "blocked", "confidence": 0.9 }
+  ]
+}
