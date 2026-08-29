@@ -73,3 +73,7 @@ labs/            (upcoming) intentionally broken concurrency examples
 - [ADR-001: Immutable base map with per-participant dynamic overlays](docs/design_decisions/ADR-001-immutable-base-map.md)
 - [ADR-002: Deterministic single-threaded reference first](docs/design_decisions/ADR-002-single-threaded-reference.md)
 - [ADR-003: Deterministic planner tie-breaking contract](docs/design_decisions/ADR-003-planner-determinism.md)
+
+## Research
+
+- [Communication-aware autonomy roadmap](docs/communication-aware-autonomy-roadmap.md) — long-term direction for communication-constrained autonomy, derived from Suojanen, *Military Communications in the Future Battlefield* (2018), with explicit source / interpretation / extrapolation separation and section/page traceability.
