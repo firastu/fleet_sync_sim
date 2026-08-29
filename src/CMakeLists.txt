@@ -1,0 +1,17 @@
+# Header-only shared vocabulary: strongly-typed ids, logical time.
+add_library(fleet_common INTERFACE)
+add_library(fleet::common ALIAS fleet_common)
+target_include_directories(fleet_common INTERFACE
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
+
+# Immutable map core: graph, base map, dynamic overlay, composed view.
+add_library(fleet_map STATIC
+  map/graph.cpp
+  map/base_map.cpp
+  map/dynamic_overlay.cpp
+  map/map_view.cpp)
+add_library(fleet::map ALIAS fleet_map)
+target_include_directories(fleet_map PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
+target_link_libraries(fleet_map PUBLIC fleet_common)
+fleet_target_warnings(fleet_map)
