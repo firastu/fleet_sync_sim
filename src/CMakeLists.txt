@@ -24,3 +24,10 @@ add_library(fleet_planning STATIC
 add_library(fleet::planning ALIAS fleet_planning)
 target_link_libraries(fleet_planning PUBLIC fleet::map)
 fleet_target_warnings(fleet_planning)
+
+# Deterministic simulation core: logical clock, discrete event queue.
+add_library(fleet_simulation STATIC
+  simulation/event_queue.cpp)
+add_library(fleet::simulation ALIAS fleet_simulation)
+target_link_libraries(fleet_simulation PUBLIC fleet::common)
+fleet_target_warnings(fleet_simulation)
