@@ -25,9 +25,18 @@ add_library(fleet::planning ALIAS fleet_planning)
 target_link_libraries(fleet_planning PUBLIC fleet::map)
 fleet_target_warnings(fleet_planning)
 
-# Deterministic simulation core: logical clock, discrete event queue.
+# Deterministic simulation core: logical clock, discrete event queue,
+# deterministic bounded sampler.
 add_library(fleet_simulation STATIC
-  simulation/event_queue.cpp)
+  simulation/event_queue.cpp
+  simulation/deterministic_rng.cpp)
 add_library(fleet::simulation ALIAS fleet_simulation)
 target_link_libraries(fleet_simulation PUBLIC fleet::common)
 fleet_target_warnings(fleet_simulation)
+
+# Deterministic unreliable point-to-point transport simulation.
+add_library(fleet_network STATIC
+  network/network_simulator.cpp)
+add_library(fleet::network ALIAS fleet_network)
+target_link_libraries(fleet_network PUBLIC fleet::simulation fleet::map)
+fleet_target_warnings(fleet_network)

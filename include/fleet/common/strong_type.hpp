@@ -1,6 +1,8 @@
 #pragma once
 
 #include <compare>
+#include <cstddef>
+#include <functional>
 
 namespace fleet::common {
 
@@ -28,3 +30,15 @@ private:
 };
 
 }  // namespace fleet::common
+
+// Hash support so strongly-typed ids can key exact-lookup hash containers.
+// Containers keyed by these types must use them for exact lookup only —
+// iteration order must never influence behavior (ADR-002 determinism).
+namespace std {
+template <typename Tag, typename Rep>
+struct hash<fleet::common::StrongType<Tag, Rep>> {
+    std::size_t operator()(const fleet::common::StrongType<Tag, Rep>& id) const noexcept {
+        return std::hash<Rep>{}(id.value());
+    }
+};
+}  // namespace std

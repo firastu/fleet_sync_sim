@@ -9,8 +9,9 @@ control station is unreachable.
 (Stage 0). Currently implemented: the map core (immutable `BaseMap`, CSR
 `Graph`, per-participant `DynamicMapOverlay`, composed `MapView`),
 sequenced `MapDelta` reconciliation, a deterministic `AStarPlanner` over
-`MapView`, and the deterministic simulation event queue and logical
-clock. See the
+`MapView`, the deterministic simulation event queue and logical clock,
+and a seeded unreliable-network simulator (latency, loss, duplication,
+emergent reordering). See the
 [roadmap](#roadmap) and the [design records](docs/design_decisions/).
 
 ## The engineering problem
@@ -77,6 +78,7 @@ labs/            (upcoming) intentionally broken concurrency examples
 - [ADR-003: Deterministic planner tie-breaking contract](docs/design_decisions/ADR-003-planner-determinism.md)
 - [ADR-004: Sequenced MapDelta reconciliation](docs/design_decisions/ADR-004-map-delta-reconciliation.md)
 - [ADR-005: Deterministic event scheduling and logical time](docs/design_decisions/ADR-005-deterministic-event-scheduling.md)
+- [ADR-006: Deterministic network fault model](docs/design_decisions/ADR-006-deterministic-network-fault-model.md)
 
 ## Research
 
