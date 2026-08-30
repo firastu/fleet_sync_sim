@@ -83,6 +83,14 @@ add_library(fleet::world ALIAS fleet_world)
 target_link_libraries(fleet_world PUBLIC fleet::robot fleet::map)
 fleet_target_warnings(fleet_world)
 
+# GeoJSON output adapters (ADR-015, geospatial G2): pure outward-facing
+# exports of BaseMap and trace events. No GeoLibre/GIS dependency.
+add_library(fleet_geojson STATIC
+  geojson/geojson_export.cpp)
+add_library(fleet::geojson ALIAS fleet_geojson)
+target_link_libraries(fleet_geojson PUBLIC fleet::map fleet::scenario)
+fleet_target_warnings(fleet_geojson)
+
 # OSM PBF import: real geographic data -> BaseMap (ADR-014). A SEPARATE
 # target so the map core never depends on OSM tooling: libosmium and
 # protozero are pinned and PRIVATE here (headers as SYSTEM to keep their

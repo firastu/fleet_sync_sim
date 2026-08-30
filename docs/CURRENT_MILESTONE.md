@@ -104,16 +104,18 @@ clock, no sensor noise models before #11 defines them.
   topology with preserved polylines, canonical id assignment,
   oneway subset, haversine costs, loud failures, import-twice
   determinism, tiny committed fixtures and a stats CLI (ADR-014,
-  #12A.2 part 2).
+  #12A.2 part 2);
+- GeoJSON output adapters (`fleet::geojson`): BaseMap debug export and
+  trace trajectory export — pure outward-facing functions, deterministic
+  ordering, one tested `[lon, lat]` conversion point, `fleet_map_import
+  --map-geojson` (ADR-015, #12B; geospatial doc G2 active).
 
 ---
 
 ## Current objective
 
-M2, item by item (see above). #10, #11 and #12A (geometry layer,
-one-way topology, OSM import) are complete. Next: #12B geospatial
-output adapters (BaseMap debug GeoJSON + trace → GeoJSON), then #13
-interactive console.
+M2, item by item (see above). #10, #11, #12A and #12B are complete.
+Next: #13 interactive console over the runner.
 
 ---
 

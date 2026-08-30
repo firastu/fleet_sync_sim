@@ -33,10 +33,12 @@ add_executable(fleet_unit_tests
   unit/scenario/scenario_movement_test.cpp
   unit/scenario/scenario_sensing_test.cpp
   unit/world/world_test.cpp
-  unit/osm/osm_pbf_importer_test.cpp)
+  unit/osm/osm_pbf_importer_test.cpp
+  unit/geojson/geojson_export_test.cpp)
 target_include_directories(fleet_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 target_link_libraries(fleet_unit_tests PRIVATE fleet::station fleet::robot fleet::network
                                            fleet::planning fleet::scenario fleet::osm_import
+                                           fleet::geojson
                                            GTest::gtest_main)
 fleet_target_warnings(fleet_unit_tests)
 

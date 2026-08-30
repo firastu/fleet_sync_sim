@@ -49,7 +49,10 @@ Currently implemented:
 - deterministic OSM PBF import into `BaseMap` (retained-node topology,
   preserved way geometry, one-way support, haversine length costs,
   import-twice determinism; ADR-013/014) with a thin `fleet_map_import`
-  CLI.
+  CLI;
+- GeoJSON output adapters: `BaseMap` debug export and trace trajectory
+  export, pure outward-facing, deterministic, `[lon, lat]` handled in
+  one tested place (ADR-015; geospatial G1/G2 active).
 
 See:
 
