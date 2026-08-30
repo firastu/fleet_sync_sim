@@ -52,7 +52,10 @@ Currently implemented:
   CLI;
 - GeoJSON output adapters: `BaseMap` debug export and trace trajectory
   export, pure outward-facing, deterministic, `[lon, lat]` handled in
-  one tested place (ADR-015; geospatial G1/G2 active).
+  one tested place (ADR-015; geospatial G1/G2 active);
+- interactive console (`fleet_console`): stepping, event injection and
+  live state inspection over the runner's public APIs — same event
+  semantics as scenario files, byte-identical stepped runs.
 
 See:
 
@@ -129,3 +132,28 @@ byte-identical trace. Scenario format and trace contract: ADR-009;
 movement semantics (`movement` + `duration_ms` keys): ADR-010 — see
 `scenarios/delivery_reroute.json` (scripted reroute) and
 `scenarios/world_sensing.json` (physical sensing, ADR-011).
+
+### Interacting with a scenario
+
+```sh
+# Step time, inject observations/link changes/world truth, inspect
+# robot and station knowledge live:
+./build/debug/apps/fleet_console/fleet_console \
+    --scenario scenarios/world_sensing.json
+> run 1500
+> robots
+> world C-D blocked
+> robot robot_a
+> finish
+```
+
+Injected events run through the same effect path as scenario-file
+events; a stepped run produces a byte-identical trace to a one-shot run
+(tested).
+
+### Importing real maps
+
+```sh
+./build/debug/apps/fleet_map_import/fleet_map_import map.osm.pbf \
+    --map-geojson map.geojson
+```

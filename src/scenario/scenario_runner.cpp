@@ -264,60 +264,62 @@ void ScenarioRunner::wire_delivery_handler(std::size_t index) {
 
 void ScenarioRunner::schedule_events() {
     for (const ScenarioEvent& event : scenario_.events) {
-        queue_->schedule(event.at, [this, event]() {
-            if (const SetLinkAction* set_link = std::get_if<SetLinkAction>(&event.action)) {
-                network_->set_link_state(set_link->from, set_link->to, set_link->up);
-                emit(TraceEvent{event.at,
-                                "world",
-                                "link_state",
-                                {{"from", static_cast<std::int64_t>(set_link->from.value())},
-                                 {"to", static_cast<std::int64_t>(set_link->to.value())},
-                                 {"up", set_link->up}}});
-            } else if (const ObserveEdgeAction* observation =
-                           std::get_if<ObserveEdgeAction>(&event.action)) {
-                const robot::ObservationResult result =
-                    robots_[index_of_robot(observation->robot)]
-                        ->observe(observation->edge, observation->status, event.at,
-                                  observation->confidence);
-                emit(TraceEvent{
-                    event.at,
-                    robot_name_of(observation->robot),
-                    "observation",
-                    {{"edge", edge_label(observation->edge)},
-                     {"status",
-                      std::string{observation->status == map::EdgeStatus::Blocked ? "BLOCKED"
-                                                                                  : "OPEN"}},
-                     {"decision", decision_name(result.local_decision)},
-                     {"replanned", result.replanned}}});
-            } else if (const ResynchronizeAction* resync =
-                           std::get_if<ResynchronizeAction>(&event.action)) {
-                const std::size_t count =
-                    robots_[index_of_robot(resync->robot)]->resynchronize();
-                emit(TraceEvent{event.at,
-                                robot_name_of(resync->robot),
-                                "resynchronize",
-                                {{"deltas", static_cast<std::int64_t>(count)}}});
-            } else if (const SetWorldEdgeStateAction* world_change =
-                           std::get_if<SetWorldEdgeStateAction>(&event.action)) {
-                // What actually happened (ADR-011): truth first, then
-                // every robot senses in declaration order.
-                world_->set_edge_state(world_change->edge, world_change->status);
-                emit(TraceEvent{event.at,
-                                "world",
-                                "world_edge",
-                                {{"edge", edge_label(world_change->edge)},
-                                 {"status",
-                                  std::string{world_change->status ==
-                                                      map::EdgeStatus::Blocked
-                                                  ? "BLOCKED"
-                                                  : "OPEN"}}}});
-                if (sensor_) {
-                    for (std::size_t index = 0; index < robots_.size(); ++index) {
-                        sense_for(index, event.at);
-                    }
-                }
+        queue_->schedule(event.at, [this, event]() { apply_scenario_event(event); });
+    }
+}
+
+// One scenario event's effect — shared by scheduled (loaded) events and
+// interactive inject() so both paths are byte-identical.
+void ScenarioRunner::apply_scenario_event(const ScenarioEvent& event) {
+    if (const SetLinkAction* set_link = std::get_if<SetLinkAction>(&event.action)) {
+        network_->set_link_state(set_link->from, set_link->to, set_link->up);
+        emit(TraceEvent{event.at,
+                        "world",
+                        "link_state",
+                        {{"from", static_cast<std::int64_t>(set_link->from.value())},
+                         {"to", static_cast<std::int64_t>(set_link->to.value())},
+                         {"up", set_link->up}}});
+    } else if (const ObserveEdgeAction* observation =
+                   std::get_if<ObserveEdgeAction>(&event.action)) {
+        const robot::ObservationResult result =
+            robots_[index_of_robot(observation->robot)]
+                ->observe(observation->edge, observation->status, event.at,
+                          observation->confidence);
+        emit(TraceEvent{
+            event.at,
+            robot_name_of(observation->robot),
+            "observation",
+            {{"edge", edge_label(observation->edge)},
+             {"status",
+              std::string{observation->status == map::EdgeStatus::Blocked ? "BLOCKED"
+                                                                           : "OPEN"}},
+             {"decision", decision_name(result.local_decision)},
+             {"replanned", result.replanned}}});
+    } else if (const ResynchronizeAction* resync =
+                   std::get_if<ResynchronizeAction>(&event.action)) {
+        const std::size_t count = robots_[index_of_robot(resync->robot)]->resynchronize();
+        emit(TraceEvent{event.at,
+                        robot_name_of(resync->robot),
+                        "resynchronize",
+                        {{"deltas", static_cast<std::int64_t>(count)}}});
+    } else if (const SetWorldEdgeStateAction* world_change =
+                   std::get_if<SetWorldEdgeStateAction>(&event.action)) {
+        // What actually happened (ADR-011): truth first, then every robot
+        // senses in declaration order.
+        world_->set_edge_state(world_change->edge, world_change->status);
+        emit(TraceEvent{event.at,
+                        "world",
+                        "world_edge",
+                        {{"edge", edge_label(world_change->edge)},
+                         {"status",
+                          std::string{world_change->status == map::EdgeStatus::Blocked
+                                          ? "BLOCKED"
+                                          : "OPEN"}}}});
+        if (sensor_) {
+            for (std::size_t index = 0; index < robots_.size(); ++index) {
+                sense_for(index, event.at);
             }
-        });
+        }
     }
 }
 
@@ -404,13 +406,50 @@ void ScenarioRunner::sense_for(std::size_t index, common::Tick now) {
     }
 }
 
-ScenarioRunner::Result ScenarioRunner::run_to_completion() {
+void ScenarioRunner::begin() {
+    if (begun_) {
+        return;
+    }
+    begun_ = true;
     wire_world();
     schedule_events();
+}
+
+ScenarioRunner::Result ScenarioRunner::run_until(common::Tick until) {
+    begin();
+    queue_->run_until(until);  // throws std::invalid_argument if until < now
+    return Result{resolved_seed_, queue_->clock().now(), robots_.size(),
+                  scenario_.has_station};
+}
+
+common::Tick ScenarioRunner::now() {
+    begin();
+    return queue_->clock().now();
+}
+
+void ScenarioRunner::inject(const ScenarioEvent& event) {
+    if (!begun_) {
+        throw std::logic_error("ScenarioRunner::inject: call begin() first");
+    }
+    if (event.at < queue_->clock().now()) {
+        throw std::invalid_argument(
+            "ScenarioRunner::inject: event tick is in the past");
+    }
+    queue_->schedule(event.at, [this, event]() { apply_scenario_event(event); });
+}
+
+ScenarioRunner::Result ScenarioRunner::run_to_completion() {
+    begin();
     if (scenario_.duration_ms.has_value()) {
         // Bounded horizon (ADR-010): events beyond the horizon never run;
-        // the clock lands exactly on the horizon.
-        queue_->run_until(common::Tick{*scenario_.duration_ms});
+        // the clock lands exactly on the horizon. Interactive stepping
+        // may have already passed it (the operator extended the run) —
+        // then nothing more runs and the snapshot is returned; draining
+        // instead would chase unbounded park-and-retry chains.
+        const common::Tick horizon{*scenario_.duration_ms};
+        if (horizon > queue_->clock().now()) {
+            queue_->run_until(horizon);
+        }
     } else {
         queue_->run_to_completion();
     }

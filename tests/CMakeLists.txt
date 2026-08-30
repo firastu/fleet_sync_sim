@@ -32,6 +32,7 @@ add_executable(fleet_unit_tests
   unit/scenario/scenario_runner_test.cpp
   unit/scenario/scenario_movement_test.cpp
   unit/scenario/scenario_sensing_test.cpp
+  unit/scenario/scenario_stepping_test.cpp
   unit/world/world_test.cpp
   unit/osm/osm_pbf_importer_test.cpp
   unit/geojson/geojson_export_test.cpp)

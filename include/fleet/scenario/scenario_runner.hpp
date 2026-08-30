@@ -72,9 +72,36 @@ public:
     // Observation only; never affects the run. Must outlive the runner.
     void add_sink(TraceSink& sink);
 
-    // Wires the world, schedules all scenario events and runs the queue to
-    // completion. Scenario effects that throw propagate with ADR-005
-    // semantics (consumed event, consistent queue).
+    // --- interactive stepping (ADR-009 extension; #13) ---------------------
+    //
+    // run_to_completion() = begin() + run to the scenario horizon (or
+    // queue exhaustion). Interactive callers instead: begin() once, then
+    // run_until() in arbitrary chunks and inject() events at future
+    // ticks. Stepping is semantically identical to one-shot execution:
+    // the same events execute in the same (tick, enqueue) order, so a
+    // stepped run produces a byte-identical trace.
+
+    // Wires the world and schedules all scenario events. Idempotent:
+    // the first call does the work, later calls are no-ops.
+    void begin();
+
+    // Advances to exactly `until` (ADR-005 horizon semantics: events
+    // with tick <= until run, the clock lands on until). Throws
+    // std::invalid_argument when until < now. Implicitly begin()s.
+    Result run_until(common::Tick until);
+
+    // Current logical time (implicitly begin()s; a run at t=0 is legal).
+    common::Tick now();
+
+    // Schedules one additional scenario event at its declared tick.
+    // Requires begin() (the world must exist) and event.at >= now();
+    // throws std::logic_error / std::invalid_argument otherwise. The
+    // event executes through the same effect path as loaded events —
+    // the console owns no semantics of its own.
+    void inject(const ScenarioEvent& event);
+
+    // Runs the queue to the scenario horizon (duration_ms) or to
+    // exhaustion. Same behavior as before the stepping API existed.
     Result run_to_completion();
 
     // Post-run access for tests and callers. robot() throws
@@ -87,6 +114,7 @@ private:
     void wire_world();
     void wire_delivery_handler(std::size_t index);
     void schedule_events();
+    void apply_scenario_event(const ScenarioEvent& event);
     void advance_robot(std::size_t index);
     void sense_for(std::size_t index, common::Tick now);
 
@@ -101,6 +129,7 @@ private:
     const map::BaseMap& base_;
     Scenario scenario_;
     std::uint64_t resolved_seed_;
+    bool begun_ = false;
 
     std::vector<TraceSink*> sinks_;
 

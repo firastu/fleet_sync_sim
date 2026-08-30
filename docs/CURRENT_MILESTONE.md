@@ -34,10 +34,12 @@ docs).
 
 ## Milestone M2 — Movement, sensing and geospatial grounding
 
-Status: IN PROGRESS (opened with commit #10)
+Status: COMPLETE (closed by commit #13: interactive console; all items
+#10–#13 delivered)
 
-M1 proved the distributed map-knowledge core on a static fleet. M2 makes
-the fleet move and grounds it in real-world data, per the gap analysis
+M1 proved the distributed map-knowledge core on a static fleet. M2 made
+the fleet move, grounded truth and perception in a world model, and
+connected FleetSyncSim to real geographic data in both directions:
 agreed after M1:
 
 1. **#10 — movement, `RobotState`, replan-from-position** (ADR-010) —
@@ -114,8 +116,11 @@ clock, no sensor noise models before #11 defines them.
 
 ## Current objective
 
-M2, item by item (see above). #10, #11, #12A and #12B are complete.
-Next: #13 interactive console over the runner.
+M2 is complete (#10 movement, #11 truth/sensing, #12A OSM import, #12B
+GeoJSON, #13 console). Next: define M3 with the user — the natural
+candidate from the roadmap is PNT/localization over real geometry
+(pose truth vs belief, GNSS availability, dead reckoning, map matching
+on MapGeometry), building directly on the #10–#12 foundations.
 
 ---
 
