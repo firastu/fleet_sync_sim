@@ -21,3 +21,8 @@ compile_commands.json
 
 # docs/
 research/
+
+# Downloaded/regional OSM extracts never belong in the repository; only
+# the tiny committed test fixtures are excepted.
+*.osm.pbf
+!tests/fixtures/osm/*.osm.pbf

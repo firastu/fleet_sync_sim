@@ -83,6 +83,42 @@ add_library(fleet::world ALIAS fleet_world)
 target_link_libraries(fleet_world PUBLIC fleet::robot fleet::map)
 fleet_target_warnings(fleet_world)
 
+# OSM PBF import: real geographic data -> BaseMap (ADR-014). A SEPARATE
+# target so the map core never depends on OSM tooling: libosmium and
+# protozero are pinned and PRIVATE here (headers as SYSTEM to keep their
+# warnings out of our -Werror), zlib is the only system dependency.
+# The dependencies are populated (downloaded) but their own CMake is NOT
+# executed — libosmium is header-only for PBF reading, so include paths
+# + zlib are all we need, and no foreign build logic runs at configure
+# time (deterministic, offline-reproducible once fetched).
+find_package(ZLIB REQUIRED)
+FetchContent_Declare(protozero
+  GIT_REPOSITORY https://github.com/mapbox/protozero.git
+  GIT_TAG v1.7.1
+  GIT_SHALLOW TRUE)
+FetchContent_Declare(libosmium
+  GIT_REPOSITORY https://github.com/osmcode/libosmium.git
+  GIT_TAG v2.20.0
+  GIT_SHALLOW TRUE)
+foreach(fleet_osm_dep IN ITEMS protozero libosmium)
+  FetchContent_GetProperties(${fleet_osm_dep})
+  if(NOT ${fleet_osm_dep}_POPULATED)
+    FetchContent_Populate(${fleet_osm_dep})
+  endif()
+endforeach()
+add_library(fleet_osm_import STATIC
+  osm/osm_pbf_importer.cpp)
+add_library(fleet::osm_import ALIAS fleet_osm_import)
+target_include_directories(fleet_osm_import PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
+target_include_directories(fleet_osm_import SYSTEM PRIVATE
+  ${libosmium_SOURCE_DIR}/include
+  ${protozero_SOURCE_DIR}/include)
+target_link_libraries(fleet_osm_import
+  PUBLIC fleet::map
+  PRIVATE ZLIB::ZLIB)
+fleet_target_warnings(fleet_osm_import)
+
 # Scenario runner + deterministic structured trace: wiring and scheduling
 # over existing public APIs only (ADR-009). The JSON parser is PRIVATE to
 # the loader; everything downstream consumes typed Scenario data.

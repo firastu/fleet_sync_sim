@@ -1,0 +1,42 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!-- Human-readable mirror of tiny_network.osm.pbf (documentation only;
+     tests consume the .pbf). Regenerate the .pbf with
+     fleet_osm_fixture_writer; embedded data in the generator is the
+     source of truth. -->
+<osm version="0.6" generator="FleetSyncSim fixture">
+  <!-- retained topology nodes end up as 100, 104, 300, 500 (ascending) -->
+  <node id="100" lat="53.55000" lon="9.99000"/>
+  <node id="101" lat="53.55001" lon="9.99010"/>  <!-- geometry only -->
+  <node id="102" lat="53.55006" lon="9.99020"/>  <!-- geometry only, deliberately
+                                                      off-line: bent segment -->
+  <node id="103" lat="53.55003" lon="9.99030"/>  <!-- geometry only -->
+  <node id="104" lat="53.55004" lon="9.99040"/>
+  <node id="200" lat="53.55014" lon="9.99050"/>  <!-- geometry only -->
+  <node id="300" lat="53.55024" lon="9.99060"/>
+  <node id="400" lat="53.55034" lon="9.99070"/>  <!-- geometry only -->
+  <node id="500" lat="53.55044" lon="9.99080"/>
+  <node id="600" lat="53.55054" lon="9.99090"/>  <!-- footway-only node -->
+
+  <!-- bidirectional; one graph edge 100<->104 with polyline 100..104 -->
+  <way id="500">
+    <nd ref="100"/><nd ref="101"/><nd ref="102"/><nd ref="103"/><nd ref="104"/>
+    <tag k="highway" v="residential"/>
+  </way>
+  <!-- oneway=yes; one forward edge 104->300 with polyline 104,200,300 -->
+  <way id="600">
+    <nd ref="104"/><nd ref="200"/><nd ref="300"/>
+    <tag k="highway" v="residential"/><tag k="oneway" v="yes"/>
+  </way>
+  <!-- oneway=-1; travel runs against the node order: one reverse edge
+       300->500 (stored a=500, b=300, direction=Reverse) with the
+       way-order polyline 500,400,300 -->
+  <way id="700">
+    <nd ref="500"/><nd ref="400"/><nd ref="300"/>
+    <tag k="highway" v="unclassified"/><tag k="oneway" v="-1"/>
+  </way>
+  <!-- excluded by the highway whitelist; way counted in ways_seen only -->
+  <way id="800">
+    <nd ref="100"/><nd ref="600"/>
+    <tag k="highway" v="footway"/>
+  </way>
+</osm>

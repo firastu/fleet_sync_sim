@@ -32,12 +32,34 @@ add_executable(fleet_unit_tests
   unit/scenario/scenario_runner_test.cpp
   unit/scenario/scenario_movement_test.cpp
   unit/scenario/scenario_sensing_test.cpp
-  unit/world/world_test.cpp)
+  unit/world/world_test.cpp
+  unit/osm/osm_pbf_importer_test.cpp)
 target_include_directories(fleet_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 target_link_libraries(fleet_unit_tests PRIVATE fleet::station fleet::robot fleet::network
-                                           fleet::planning fleet::scenario
+                                           fleet::planning fleet::scenario fleet::osm_import
                                            GTest::gtest_main)
 fleet_target_warnings(fleet_unit_tests)
+
+# Committed OSM PBF fixtures are copied next to the test binary like the
+# scenario files; tests load them from fixtures/osm/.
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/fixtures
+     DESTINATION ${CMAKE_CURRENT_BINARY_DIR}
+     FILES_MATCHING PATTERN "*.osm.pbf")
+
+# Fixture generator for the committed OSM PBF artifacts. Never part of
+# the test run (EXCLUDE_FROM_ALL): CI consumes the committed .osm.pbf
+# files; this tool regenerates them on demand. libosmium paths come from
+# the same pinned FetchContent population as the importer target.
+find_package(ZLIB REQUIRED)
+FetchContent_GetProperties(libosmium)
+FetchContent_GetProperties(protozero)
+add_executable(fleet_osm_fixture_writer EXCLUDE_FROM_ALL
+  fixtures/osm/generate_fixture.cpp)
+target_include_directories(fleet_osm_fixture_writer SYSTEM PRIVATE
+  ${libosmium_SOURCE_DIR}/include
+  ${protozero_SOURCE_DIR}/include)
+target_link_libraries(fleet_osm_fixture_writer PRIVATE ZLIB::ZLIB)
+fleet_target_warnings(fleet_osm_fixture_writer)
 
 # Scenario files under test are part of the declarative contract: copy them
 # next to the test binary so loader tests run the real on-disk artifacts.

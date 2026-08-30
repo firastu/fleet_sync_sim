@@ -1,1 +1,2 @@
 add_subdirectory(fleet_sim)
+add_subdirectory(fleet_map_import)

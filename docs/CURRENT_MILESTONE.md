@@ -98,15 +98,22 @@ clock, no sensor noise models before #11 defines them.
 - `MapGeometry`: optional WGS84 geometry side of `BaseMap`, topology
   unchanged (ADR-012, #12A.1);
 - one-way edges in topology: `EdgeDirection`, planner-respected, default
-  bidirectional preserves all existing behavior (ADR-013, #12A.2 part 1).
+  bidirectional preserves all existing behavior (ADR-013, #12A.2 part 1);
+- deterministic OSM PBF import (`fleet::osm`, pinned libosmium/protozero
+  PRIVATE to the importer target): whitelist policy, retained-node
+  topology with preserved polylines, canonical id assignment,
+  oneway subset, haversine costs, loud failures, import-twice
+  determinism, tiny committed fixtures and a stats CLI (ADR-014,
+  #12A.2 part 2).
 
 ---
 
 ## Current objective
 
-M2, item by item (see above). #10 and #11 are complete; ADR-012 is
-accepted. Next: #12A geographic map foundation + OSM import, then #12B
-geospatial output adapters.
+M2, item by item (see above). #10, #11 and #12A (geometry layer,
+one-way topology, OSM import) are complete. Next: #12B geospatial
+output adapters (BaseMap debug GeoJSON + trace → GeoJSON), then #13
+interactive console.
 
 ---
 

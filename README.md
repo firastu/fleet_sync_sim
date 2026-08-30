@@ -45,7 +45,11 @@ Currently implemented:
 - world ground truth + position-based sensing behind a strict
   truth→sensor→belief boundary (ADR-011);
 - `MapGeometry`: optional WGS84 side of `BaseMap` — node coordinates,
-  edge polylines, immutable, never read by planning (ADR-012).
+  edge polylines, immutable, never read by planning (ADR-012);
+- deterministic OSM PBF import into `BaseMap` (retained-node topology,
+  preserved way geometry, one-way support, haversine length costs,
+  import-twice determinism; ADR-013/014) with a thin `fleet_map_import`
+  CLI.
 
 See:
 
