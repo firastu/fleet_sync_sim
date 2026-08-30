@@ -16,6 +16,7 @@ endif()
 add_executable(fleet_unit_tests
   unit/map/graph_test.cpp
   unit/map/base_map_test.cpp
+  unit/map/geometry_test.cpp
   unit/map/dynamic_overlay_test.cpp
   unit/map/map_view_test.cpp
   unit/map/map_reconciler_test.cpp

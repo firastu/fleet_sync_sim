@@ -43,7 +43,9 @@ Currently implemented:
 - robot movement with replan-from-position and mission completion
   (ADR-010);
 - world ground truth + position-based sensing behind a strict
-  truth→sensor→belief boundary (ADR-011).
+  truth→sensor→belief boundary (ADR-011);
+- `MapGeometry`: optional WGS84 side of `BaseMap` — node coordinates,
+  edge polylines, immutable, never read by planning (ADR-012).
 
 See:
 

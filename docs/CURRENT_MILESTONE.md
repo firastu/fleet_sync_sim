@@ -94,7 +94,9 @@ clock, no sensor noise models before #11 defines them.
   (ADR-010);
 - world ground truth + position-based sensing with a strict
   truth→sensor→belief boundary; `set_world_edge_state` scenarios
-  (ADR-011).
+  (ADR-011);
+- `MapGeometry`: optional WGS84 geometry side of `BaseMap`, topology
+  unchanged (ADR-012, #12A.1).
 
 ---
 

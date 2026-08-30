@@ -23,10 +23,11 @@ target_include_directories(fleet_common INTERFACE
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 
 # Immutable map core: graph, base map, dynamic overlay, composed view,
-# delta reconciliation.
+# delta reconciliation, geographic geometry side (ADR-012).
 add_library(fleet_map STATIC
   map/graph.cpp
   map/base_map.cpp
+  map/geometry.cpp
   map/dynamic_overlay.cpp
   map/map_view.cpp
   map/map_reconciler.cpp)
