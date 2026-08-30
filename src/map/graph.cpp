@@ -65,7 +65,8 @@ common::NodeId Graph::Builder::add_node(std::string name, NodePosition position)
 }
 
 common::EdgeId Graph::Builder::connect(common::NodeId a, common::NodeId b,
-                                       std::optional<double> cost) {
+                                       std::optional<double> cost,
+                                       EdgeDirection direction) {
     if (built_) {
         throw std::logic_error("Graph::Builder: build() already called");
     }
@@ -81,7 +82,7 @@ common::EdgeId Graph::Builder::connect(common::NodeId a, common::NodeId b,
     if (!std::isfinite(resolved) || resolved <= 0.0) {
         throw std::invalid_argument("Graph::Builder::connect: cost must be finite and > 0");
     }
-    pending_.push_back(PendingEdge{a, b, resolved});
+    pending_.push_back(PendingEdge{a, b, resolved, direction});
     return common::EdgeId{static_cast<std::uint32_t>(pending_.size() - 1)};
 }
 
@@ -98,7 +99,7 @@ Graph Graph::Builder::build() {
     edges.reserve(edge_count);
     for (std::size_t i = 0; i < edge_count; ++i) {
         edges.push_back(Edge{common::EdgeId{static_cast<std::uint32_t>(i)}, pending_[i].a,
-                             pending_[i].b, pending_[i].cost});
+                             pending_[i].b, pending_[i].cost, pending_[i].direction});
     }
 
     // CSR construction: count endpoint degrees, prefix-sum into row bounds,

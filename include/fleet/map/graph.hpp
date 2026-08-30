@@ -25,13 +25,26 @@ struct Node {
     NodePosition position{};
 };
 
-// Undirected edge of the road network. `a` and `b` are unordered endpoints;
-// `base_cost` is the static traversal cost in either direction.
+// Directionality of an edge (ADR-013). Bidirectional is the default and
+// the pre-existing semantics of every map so far; Forward/Reverse model
+// one-way edges (e.g. OSM oneway ways). `Forward` means traversable only
+// from `a` to `b`; `Reverse` only from `b` to `a`. Direction affects
+// TRAVERSABILITY only — never cost, knowledge or reconciliation.
+enum class EdgeDirection : std::uint8_t {
+    Bidirectional,
+    Forward,
+    Reverse,
+};
+
+// Edge of the road network. `a` and `b` are endpoints (ordered for the
+// one-way direction, unordered otherwise); `base_cost` is the static
+// traversal cost in the allowed direction(s).
 struct Edge {
     common::EdgeId id{};
     common::NodeId a{};
     common::NodeId b{};
     double base_cost = 1.0;
+    EdgeDirection direction = EdgeDirection::Bidirectional;
 };
 
 // One entry of a node's adjacency list: the edge to traverse and the node
@@ -105,11 +118,13 @@ class Graph::Builder {
 public:
     common::NodeId add_node(std::string name, NodePosition position);
 
-    // Adds an undirected edge. When `cost` is not given it defaults to the
-    // Euclidean distance between the endpoints.
+    // Adds an edge (bidirectional by default; one-way via `direction`,
+    // ADR-013). When `cost` is not given it defaults to the Euclidean
+    // distance between the endpoints.
     common::EdgeId connect(common::NodeId a,
                            common::NodeId b,
-                           std::optional<double> cost = std::nullopt);
+                           std::optional<double> cost = std::nullopt,
+                           EdgeDirection direction = EdgeDirection::Bidirectional);
 
     [[nodiscard]] Graph build();
 
@@ -118,6 +133,7 @@ private:
         common::NodeId a;
         common::NodeId b;
         double cost;
+        EdgeDirection direction;
     };
 
     void require_known(common::NodeId id) const;

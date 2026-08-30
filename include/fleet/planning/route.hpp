@@ -20,7 +20,9 @@ namespace fleet::planning {
 //     nodes[i + 1] in the base graph;
 //   - cost == sum of effective traversal costs (MapView::traversal_cost)
 //     of the edges, accumulated in route order;
-//   - no edge in the route is blocked in the MapView used for planning;
+//   - no edge in the route is blocked in the MapView used for planning,
+//     and every edge is entered in an allowed direction (ADR-013: one-way
+//     edges are never used against their direction);
 //   - base_version/overlay_version record which map state produced this
 //     plan (stale-plan detection later).
 //

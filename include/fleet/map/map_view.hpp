@@ -39,6 +39,13 @@ public:
 
     [[nodiscard]] bool is_blocked(common::EdgeId edge) const noexcept;
 
+    // Direction- and block-aware traversability (ADR-013): may a route
+    // enter `edge` traveling FROM `from` (an endpoint of the edge)?
+    // False when the edge is dynamically blocked, when `from` is not an
+    // endpoint, or when the edge's one-way direction opposes the move.
+    // Bidirectional edges (the default) are traversable from both sides.
+    [[nodiscard]] bool traversable_from(common::EdgeId edge, common::NodeId from) const noexcept;
+
     // nullopt when the edge cannot be traversed (blocked).
     // Precondition: edge.value() < base().graph().edge_count().
     [[nodiscard]] std::optional<double> traversal_cost(common::EdgeId edge) const noexcept;

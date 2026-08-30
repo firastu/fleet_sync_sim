@@ -96,7 +96,9 @@ clock, no sensor noise models before #11 defines them.
   truth→sensor→belief boundary; `set_world_edge_state` scenarios
   (ADR-011);
 - `MapGeometry`: optional WGS84 geometry side of `BaseMap`, topology
-  unchanged (ADR-012, #12A.1).
+  unchanged (ADR-012, #12A.1);
+- one-way edges in topology: `EdgeDirection`, planner-respected, default
+  bidirectional preserves all existing behavior (ADR-013, #12A.2 part 1).
 
 ---
 

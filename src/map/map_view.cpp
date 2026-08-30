@@ -14,6 +14,22 @@ bool MapView::is_blocked(common::EdgeId edge) const noexcept {
     return state != nullptr && state->status == EdgeStatus::Blocked;
 }
 
+bool MapView::traversable_from(common::EdgeId edge, common::NodeId from) const noexcept {
+    if (is_blocked(edge)) {
+        return false;
+    }
+    const Edge& base_edge = base_->graph().edge(edge);
+    switch (base_edge.direction) {
+        case EdgeDirection::Bidirectional:
+            return base_edge.a == from || base_edge.b == from;
+        case EdgeDirection::Forward:
+            return base_edge.a == from;
+        case EdgeDirection::Reverse:
+            return base_edge.b == from;
+    }
+    return false;  // unreachable; keeps -Wreturn-type content
+}
+
 std::optional<double> MapView::traversal_cost(common::EdgeId edge) const noexcept {
     if (is_blocked(edge)) {
         return std::nullopt;

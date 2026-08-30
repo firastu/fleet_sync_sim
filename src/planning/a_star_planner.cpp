@@ -125,6 +125,11 @@ Route AStarPlanner::plan(const map::MapView& view, common::NodeId start,
         // algorithm requires admissibility only, not consistency.
 
         for (const map::AdjacencyEntry& adjacency : view.adjacency(current.node)) {
+            // One-way edges are not enterable against their direction
+            // (ADR-013); blocked edges are skipped as before.
+            if (!view.traversable_from(adjacency.edge, current.node)) {
+                continue;
+            }
             const std::optional<double> step_cost = view.traversal_cost(adjacency.edge);
             if (!step_cost.has_value()) {
                 continue;  // dynamically blocked

@@ -141,6 +141,12 @@ std::optional<RobotTransit> Robot::begin_transit(common::Tick at,
     }
     const common::EdgeId edge = route_.edges.front();
     const map::MapView view{base_, overlay_};
+    // Defensive direction check (ADR-013): the route was planned on this
+    // same knowledge, so its first edge is traversable from the effective
+    // start by construction.
+    if (!view.traversable_from(edge, route_.nodes.front())) {
+        return std::nullopt;
+    }
     const std::optional<double> cost = view.traversal_cost(edge);
     if (!cost.has_value()) {
         // Route invariant makes this unreachable (routes are planned on
