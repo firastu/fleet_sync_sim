@@ -218,7 +218,25 @@ std::size_t write_trace_geojson(const map::BaseMap& map,
     output << "{\"type\":\"FeatureCollection\",\"features\":[";
     bool first = true;
     for (const auto& [name, trajectory] : robots) {
-        if (trajectory.points.size() >= 2) {
+        // Trajectory cardinality contract (ADR-015): 0 samples -> no
+        // trajectory geometry; 1 sample -> a Point (never a one-point
+        // LineString); 2+ samples -> a LineString. Departure events
+        // always append two samples, so the single-sample case is not
+        // reachable through the current event vocabulary — the branch is
+        // defensive spec compliance for future single-sample sources.
+        if (trajectory.points.size() == 1) {
+            if (!first) {
+                output << ',';
+            }
+            first = false;
+            output << "{\"type\":\"Feature\",\"geometry\":{\"type\":\"Point\","
+                      "\"coordinates\":"
+                   << position_text(trajectory.points.front())
+                   << "},\"properties\":{\"robot\":";
+            write_json_string(output, name);
+            output << "}}";
+            ++features;
+        } else if (trajectory.points.size() >= 2) {
             if (!first) {
                 output << ',';
             }

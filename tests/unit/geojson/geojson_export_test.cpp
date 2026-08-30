@@ -114,6 +114,32 @@ TEST(GeoJsonExportTest, MapExportFallsBackToStraightEdgesWithoutPolylines) {
     EXPECT_NE(text.find("\"direction\":\"forward\""), std::string::npos);
 }
 
+TEST(GeoJsonExportTest, ReverseEdgeKeepsCanonicalPolylineAndExplicitDirection) {
+    // ADR-013/015 contract: the stored polyline stays in canonical A->B
+    // order; reverse-ness lives ONLY in the direction property, never
+    // inferred from coordinate order.
+    fleet::map::Graph::Builder builder;
+    const auto a = builder.add_node("A", NodePosition{0.0, 0.0});
+    const auto b = builder.add_node("B", NodePosition{1.0, 0.0});
+    builder.connect(a, b, 3.0, EdgeDirection::Reverse);
+    const fleet::map::Graph graph = builder.build();
+    MapGeometry::Builder geometry{graph.node_count(), graph.edge_count()};
+    geometry.set_node_position(a, kHamburg);
+    geometry.set_node_position(b, kBerlin);
+    geometry.set_edge_polyline(fleet::common::EdgeId{0}, {kHamburg, kMidpoint, kBerlin});
+    const BaseMap map{graph, MapVersion{1}, geometry.build()};
+
+    std::ostringstream output;
+    (void)write_base_map_geojson(map, output);
+    const std::string text = output.str();
+    // Canonical stored order (Hamburg -> midpoint -> Berlin)...
+    EXPECT_NE(text.find("\"coordinates\":[[9.9937000,53.5511000],[11.5000000,53.1000000],"
+                        "[13.4050000,52.5200000]]"),
+              std::string::npos);
+    // ...and the explicit direction property.
+    EXPECT_NE(text.find("\"direction\":\"reverse\""), std::string::npos);
+}
+
 TEST(GeoJsonExportTest, TraceExportReconstructsTrajectories) {
     // Hand-built trace: robot_a departs A->B then B->A (returns), robot_b
     // departs A->B; robot_a completes at A. Robots must appear in
@@ -188,6 +214,50 @@ TEST(GeoJsonExportTest, TraceExportIgnoresNonGeographicEvents) {
     std::ostringstream output;
     EXPECT_EQ(write_trace_geojson(map, events, output), 0U);
     EXPECT_EQ(output.str(), "{\"type\":\"FeatureCollection\",\"features\":[]}\n");
+}
+
+TEST(GeoJsonExportTest, TrajectoryCardinalityZeroAndCompletionOnly) {
+    // A robot with zero location samples but a completed mission emits
+    // exactly ONE Point (the completion marker) and NO LineString —
+    // the 0-samples case of the cardinality contract.
+    Wgs84Coordinate a, b;
+    const BaseMap map = geographic_line_map(&a, &b);
+    const std::vector<TraceEvent> events{
+        TraceEvent{fleet::common::Tick{100},
+                   "robot_a",
+                   "mission_complete",
+                   {{"goal", std::string{"A"}}}},
+    };
+    std::ostringstream output;
+    const std::size_t features = write_trace_geojson(map, events, output);
+    ASSERT_EQ(features, 1U);
+    const std::string text = output.str();
+    EXPECT_EQ(text.find("\"type\":\"LineString\""), std::string::npos);
+    EXPECT_NE(text.find("\"type\":\"Point\",\"coordinates\":[9.9937000,53.5511000]"),
+              std::string::npos);
+    EXPECT_NE(text.find("\"mission_complete\":true"), std::string::npos);
+}
+
+TEST(GeoJsonExportTest, TrajectoryCardinalityTwoOrMoreIsLineString) {
+    // One departure = exactly two samples = one LineString with two
+    // positions; never a Point for a moved robot, never one-point
+    // LineStrings (departure events always append from AND to).
+    Wgs84Coordinate a, b;
+    const BaseMap map = geographic_line_map(&a, &b);
+    const std::vector<TraceEvent> events{
+        TraceEvent{fleet::common::Tick{0},
+                   "robot_a",
+                   "departure",
+                   {{"from", std::string{"A"}}, {"to", std::string{"B"}}}},
+    };
+    std::ostringstream output;
+    const std::size_t features = write_trace_geojson(map, events, output);
+    ASSERT_EQ(features, 1U);
+    const std::string text = output.str();
+    EXPECT_NE(text.find("\"type\":\"LineString\",\"coordinates\":"
+                        "[[9.9937000,53.5511000],[13.4050000,52.5200000]]"),
+              std::string::npos);
+    EXPECT_EQ(text.find("\"mission_complete\""), std::string::npos);
 }
 
 }  // namespace

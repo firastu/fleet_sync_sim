@@ -31,8 +31,20 @@ never consumes anything from them.
 - FleetSyncSim stores `Wgs84Coordinate{latitude_deg, longitude_deg}`;
   GeoJSON positions are `[longitude, latitude]`. The conversion lives in
   exactly ONE function (`position_text`), tested to lock lon-before-lat,
-  with fixed 7-decimal formatting (~1 cm) for deterministic output. No
+  with fixed 7-decimal formatting for deterministic output. No
   generic pair type carries coordinates anywhere in the pipeline.
+- The 7 decimals are OUTWARD SERIALIZATION PRECISION ONLY (~1 cm): the
+  map domain keeps full `double` precision everywhere; exporters round
+  for text, never for state.
+- Trajectory cardinality (clarified in the follow-up fix): 0 location
+  samples -> no trajectory geometry; exactly 1 -> a Point (never a
+  one-point LineString); 2+ -> a LineString. Departure events always
+  append two samples, so the single-sample branch is defensive spec
+  compliance for future single-sample sources.
+- Reverse edges (clarified): the stored polyline stays in canonical
+  A->B order and the `direction` property carries `EdgeDirection`
+  verbatim (ADR-013); reverse-ness is NEVER inferred from coordinate
+  ordering.
 
 ### Deterministic feature ordering and stable properties
 
