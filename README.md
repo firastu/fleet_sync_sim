@@ -55,7 +55,9 @@ Currently implemented:
   one tested place (ADR-015; geospatial G1/G2 active);
 - interactive console (`fleet_console`): stepping, event injection and
   live state inspection over the runner's public APIs — same event
-  semantics as scenario files, byte-identical stepped runs.
+  semantics as scenario files, byte-identical stepped runs;
+- localization boundary (ADR-016, M3): `GroundTruthPose`,
+  `LocalizationEstimate`, `GnssModel` with perfect/unavailable models.
 
 See:
 

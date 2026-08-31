@@ -91,6 +91,15 @@ add_library(fleet::geojson ALIAS fleet_geojson)
 target_link_libraries(fleet_geojson PUBLIC fleet::map fleet::scenario)
 fleet_target_warnings(fleet_geojson)
 
+# Localization (ADR-016, M3): ground-truth pose, sensor models and
+# localization estimates — the truth-vs-estimate boundary. Depends only
+# on map coordinates, logical time and the deterministic RNG.
+add_library(fleet_localization STATIC
+  localization/gnss_model.cpp)
+add_library(fleet::localization ALIAS fleet_localization)
+target_link_libraries(fleet_localization PUBLIC fleet::map fleet::simulation)
+fleet_target_warnings(fleet_localization)
+
 # OSM PBF import: real geographic data -> BaseMap (ADR-014). A SEPARATE
 # target so the map core never depends on OSM tooling: libosmium and
 # protozero are pinned and PRIVATE here (headers as SYSTEM to keep their

@@ -68,6 +68,37 @@ clock, no sensor noise models before #11 defines them.
 
 ---
 
+## Milestone M3 — Positioning, navigation and timing (PNT)
+
+Status: IN PROGRESS (opened with ADR-016; commit 1 of the ladder)
+
+The M2 foundations (movement over real geometry, truth vs belief,
+operator inspection) make localization a natural extension rather than
+a separate project. M3 establishes the boundary first and makes every
+failure mode observable before choosing any estimator:
+
+```text
+GROUND TRUTH POSE -> SENSOR MODEL -> LOCALIZATION ESTIMATE
+```
+
+1. **#14 — the boundary, deliberately boring** (ADR-016):
+   `GroundTruthPose` / `LocalizationEstimate` / `GnssModel` with
+   `PerfectGnss` (zero-noise baseline, consumes no randomness) and
+   `UnavailableGnss` (outages are model selection, not special
+   cases). No uncertainty representation yet — staleness
+   (`estimated_at`) is a first-class state.
+2. Noisy GNSS on the deterministic RNG; observable degradation.
+3. Outage / stale estimate scenarios; dead-reckoning drift;
+   reacquisition.
+4. THEN decide: complementary filter / EKF / particle filter / map
+   matching on MapGeometry / cooperative localization — with an ADR
+   recording why.
+
+Scope guard unchanged: every behavior is a pure function of (scenario,
+resolved seed); no threads, no wall clock.
+
+---
+
 ## Implemented
 
 - immutable `BaseMap`;
@@ -110,17 +141,18 @@ clock, no sensor noise models before #11 defines them.
 - GeoJSON output adapters (`fleet::geojson`): BaseMap debug export and
   trace trajectory export — pure outward-facing functions, deterministic
   ordering, one tested `[lon, lat]` conversion point, `fleet_map_import
-  --map-geojson` (ADR-015, #12B; geospatial doc G2 active).
+  --map-geojson` (ADR-015, #12B; geospatial doc G2 active);
+- localization boundary (`fleet::localization`): `GroundTruthPose`,
+  `LocalizationEstimate`, `GnssModel` with perfect/unavailable models —
+  truth vs estimate, no estimator chosen yet (ADR-016, M3 commit 1).
 
 ---
 
 ## Current objective
 
-M2 is complete (#10 movement, #11 truth/sensing, #12A OSM import, #12B
-GeoJSON, #13 console). Next: define M3 with the user — the natural
-candidate from the roadmap is PNT/localization over real geometry
-(pose truth vs belief, GNSS availability, dead reckoning, map matching
-on MapGeometry), building directly on the #10–#12 foundations.
+M3, per the ladder above. Next after the boundary commit: noisy GNSS on
+the deterministic RNG, then outage/stale-estimate scenarios — each
+observable before any estimator is chosen.
 
 ---
 
