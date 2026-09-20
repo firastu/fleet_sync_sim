@@ -87,7 +87,17 @@ GROUND TRUTH POSE -> SENSOR MODEL -> LOCALIZATION ESTIMATE
    `UnavailableGnss` (outages are model selection, not special
    cases). No uncertainty representation yet — staleness
    (`estimated_at`) is a first-class state.
-2. Noisy GNSS on the deterministic RNG; observable degradation.
+2. **#15 — deterministic noisy GNSS** (ADR-017): `NoisyGnss` with
+   physically named knobs (`position_axis_sigma_m` — per-axis east/north
+   scale, `heading_sigma_rad` — separate), midpoint-centered
+   Irwin-Hall(12) noise from raw integer draws (no Box-Muller, no libm
+   in the sampling path; exact zero mean, variance 1 − 2⁻⁶⁴), generated
+   in a local tangent East/North METERS frame anchored at the truth and
+   converted
+   back to WGS84 (`apply_en_displacement`: antimeridian WRAP, explicit
+   throws near poles / pole crossing / non-finite — never clamps);
+   fixed test-locked RNG consumption (12 draws per active knob, zero
+   for zero noise); zero-noise reproduces PerfectGnss bit-exactly.
 3. Outage / stale estimate scenarios; dead-reckoning drift;
    reacquisition.
 4. THEN decide: complementary filter / EKF / particle filter / map
@@ -144,15 +154,20 @@ resolved seed); no threads, no wall clock.
   --map-geojson` (ADR-015, #12B; geospatial doc G2 active);
 - localization boundary (`fleet::localization`): `GroundTruthPose`,
   `LocalizationEstimate`, `GnssModel` with perfect/unavailable models —
-  truth vs estimate, no estimator chosen yet (ADR-016, M3 commit 1).
+  truth vs estimate, no estimator chosen yet (ADR-016, M3 commit 1);
+- deterministic noisy GNSS: Irwin-Hall(12) noise in a local tangent
+  East/North meters frame at the truth (`apply_en_displacement`),
+  physically named separate knobs, fixed test-locked RNG consumption,
+  zero-noise reproduces PerfectGnss bit-exactly (ADR-017, M3 commit 2).
 
 ---
 
 ## Current objective
 
-M3, per the ladder above. Next after the boundary commit: noisy GNSS on
-the deterministic RNG, then outage/stale-estimate scenarios — each
-observable before any estimator is chosen.
+M3, per the ladder above. #14 (boundary) and #15 (noisy GNSS) are
+complete. Next: #16 — outage and stale-estimate scenarios: localization
+age becomes visible (`now - estimate.estimated_at`) and robots start
+making decisions under stale position belief — still with no estimator.
 
 ---
 

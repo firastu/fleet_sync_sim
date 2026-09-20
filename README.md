@@ -57,7 +57,10 @@ Currently implemented:
   live state inspection over the runner's public APIs — same event
   semantics as scenario files, byte-identical stepped runs;
 - localization boundary (ADR-016, M3): `GroundTruthPose`,
-  `LocalizationEstimate`, `GnssModel` with perfect/unavailable models.
+  `LocalizationEstimate`, `GnssModel` with perfect/unavailable models;
+- deterministic noisy GNSS (ADR-017, M3): metric-frame noise on raw
+  integer RNG draws — reproducible degradation with no libm in the
+  noise path.
 
 See:
 

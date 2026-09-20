@@ -45,4 +45,22 @@ struct LocalizationEstimate {
 // localization state.
 [[nodiscard]] double normalize_heading(double heading_rad);
 
+// Applies a small East/North displacement in METERS to a WGS84 position
+// using a local tangent-plane approximation anchored AT that position
+// (no scenario-global anchor — independent fixes anchor independently;
+// valid for meter-to-tens-of-meters displacements; ADR-017). This is
+// the single metric<->WGS84 seam of the localization module: the same
+// conversion serves noisy GNSS now and dead reckoning later.
+//
+// Failure domain is EXPLICIT, never silently clamped:
+//   - longitude WRAPS across the antimeridian into [-180, +180):
+//     continuing east past +180 emerges at -180 (and mirrored westward);
+//   - east displacements at |latitude| > 89 deg are outside the
+//     approximation's supported domain and throw std::invalid_argument;
+//   - north displacements that would cross a pole throw
+//     std::invalid_argument;
+//   - non-finite displacements throw std::invalid_argument.
+[[nodiscard]] map::Wgs84Coordinate apply_en_displacement(
+    map::Wgs84Coordinate position, double east_m, double north_m);
+
 }  // namespace fleet::localization
