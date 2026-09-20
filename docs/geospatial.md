@@ -1,219 +1,426 @@
 # Geospatial Development Tooling
 
-| | |
-|---|---|
-| **Document type** | Tooling boundary and usage guide |
-| **Status** | Accepted boundary — tools remain optional |
-| **Authority** | Boundary rules below are normative; tool choices are directional |
-| **Scope** | Everything *around* FleetSyncSim that is geospatial: map preparation, inspection, visualization, scenario authoring |
+|                   |                                                                                                          |
+| ----------------- | -------------------------------------------------------------------------------------------------------- |
+| **Document type** | Tooling boundary and usage guide                                                                         |
+| **Status**        | Accepted boundary — map import and GeoJSON inspection active                                             |
+| **Authority**     | Boundary rules below are normative; individual tool choices are directional                              |
+| **Scope**         | Geospatial map preparation, inspection, visualization, and future scenario authoring around FleetSyncSim |
 
 ---
 
 ## 1. Purpose
 
-FleetSyncSim studies sovereign cooperative autonomy: robots that navigate from
-**locally held maps**, maintain **independent world models**, and keep operating
-when infrastructure disappears. Real maps are geographic. This document defines
-how geospatial tooling participates in that goal — and, just as importantly,
-where it must stop.
+FleetSyncSim studies sovereign cooperative autonomy using locally held maps, independent world models, and local planning.
 
-The core principle:
+Real maps are geographic.
 
-> **Geospatial tools are the human-facing workstation. FleetSyncSim is the
-> machine-facing autonomous system.** They communicate only through open data
-> formats. Neither ever depends on the other's internals.
+This document defines how external geospatial tooling participates in that workflow without becoming part of the autonomous core.
+
+The central rule is:
+
+> **Geospatial tools are human-facing workstations. FleetSyncSim is the machine-facing autonomy system.**
+
+They communicate through explicit data formats.
+
+Neither depends on the other's internal representation.
 
 ---
 
-## 2. The boundary
+## 2. Boundary
 
 ```text
-                      FleetSync ecosystem
-
-                  ┌───────────────────────┐
-                  │  GeoLibre / QGIS      │
-                  │                       │
-                  │  inspect maps         │
-                  │  visualize traces     │
-                  │  prepare layers       │
-                  │  author scenarios     │
-                  │  field collection     │
-                  └──────────┬────────────┘
-                             │
-                  open data formats only
-                             │
-           GeoJSON / OSM PBF / GeoPackage / PMTiles / FlatGeobuf ...
-                             │
-                             ▼
-
-  ┌──────────────────────────────────────────────────────────┐
-  │  FleetSyncSim core (deterministic, C++20, no GIS deps)   │
-  │                                                          │
-  │  BaseMap → Graph/CSR → MapView → AStarPlanner            │
-  │                        ▲                                 │
-  │  Robot (overlay + reconciler + route) ← MapDelta ← V2V   │
-  │  ControlStation · EventQueue · NetworkSimulator          │
-  │                                                          │
-  │  later: pose estimation, map matching, PNT degradation   │
-  └──────────────────────────────────────────────────────────┘
+                    Geospatial workstation
+                     GeoLibre / QGIS
+                           |
+             inspect / visualize / prepare
+                           |
+                    open data formats
+                           |
+              GeoJSON / OSM PBF / ...
+                           |
+                           v
+       +-------------------------------------------+
+       |            FleetSyncSim core              |
+       |                                           |
+       | BaseMap -> MapView -> AStarPlanner        |
+       |    |                                      |
+       |    +-> MapGeometry                        |
+       |                                           |
+       | Robot-local belief <- MapDelta <- V2V     |
+       | ScenarioRunner / World / Localization     |
+       +-------------------------------------------+
 ```
 
-### Normative boundary rules
+---
 
-1. **No runtime dependency.** Nothing in `fleet/` may include, link against,
-   call into, or require any GIS application. There is no
-   `#include <geolibre/...>` and never will be.
-2. **No representation capture.** Core map and planning abstractions
-   (`BaseMap`, `Graph`, `DynamicMapOverlay`, `MapView`) must never be reshaped
-   to match a GIS application's internal model. Our internal representation
-   exists for deterministic planning and simulation, not for tool convenience.
-3. **Formats are the only contract.** Every exchange between FleetSyncSim and
-   geospatial tooling goes through open, file-based formats (GeoJSON first;
-   see section 6).
-4. **Sovereignty is preserved on both sides.** Tools must be usable offline,
-   self-hosted or air-gapped. A workflow that leaks map data or robot traces
-   to a cloud service by default is not acceptable for this project.
+## 3. Normative boundary rules
 
-A GIS tool that violates rule 4, or a workflow that tempts us to break rules
-1-3, is rejected regardless of convenience.
+### 3.1 No GIS runtime dependency
+
+Nothing in the FleetSyncSim domain core may require a desktop GIS application at runtime.
+
+No core type should depend on GeoLibre, QGIS, or another GIS workstation.
+
+There must be no hidden requirement that a GIS application is present for:
+
+* planning;
+* simulation;
+* localization;
+* robot autonomy;
+* distributed reconciliation;
+* scenario execution.
 
 ---
 
-## 3. Why this matters for the project's goals
+### 3.2 No representation capture
 
-The project vision (`PROJECT_VISION.md`) requires robots to operate from
-**locally available map data** with **locally executed planning**. That means
-at some point the input to `BaseMap` stops being a hand-written 12-node grid
-and becomes a real place:
+Core map abstractions must not be reshaped merely to match a GIS application's internal model.
+
+For example:
 
 ```text
-region.osm.pbf                       (sovereign, offline source data)
+BaseMap
+Graph
+MapGeometry
+DynamicMapOverlay
+MapView
+```
+
+exist for FleetSyncSim domain semantics.
+
+External formats are translated at explicit boundaries.
+
+GIS convenience must not redefine core ownership, topology, identity, or determinism contracts.
+
+---
+
+### 3.3 Formats are the contract
+
+Exchange between FleetSyncSim and geospatial tooling uses explicit portable formats.
+
+Current important formats are:
+
+```text
+OSM PBF
+    map input
+
+GeoJSON
+    debug / visualization output
+```
+
+Additional formats may be introduced only when a concrete use case justifies them.
+
+---
+
+### 3.4 Offline operation matters
+
+Geospatial workflows should remain compatible with local, offline, or air-gapped operation.
+
+The project should not require uploading map data, mission data, or robot traces to an external cloud service merely to inspect them.
+
+---
+
+## 4. Current geospatial flow
+
+### 4.1 Map input
+
+```text
+region.osm.pbf
+      |
+      v
+ fleet::osm
+      |
+      v
+BaseMap
+├── Graph
+└── MapGeometry
+      |
+      v
+planning / simulation
+```
+
+The OSM importer converts supported external geographic data into FleetSyncSim domain types.
+
+Parser dependencies remain isolated to the importer target rather than leaking into the rest of the core.
+
+Exact importer contracts are defined by the relevant ADRs.
+
+---
+
+### 4.2 Debug map output
+
+```text
+BaseMap
+   |
+   v
+fleet::geojson
+   |
+   v
+GeoJSON
+   |
+   v
+GeoLibre / QGIS
+```
+
+This allows visual inspection of imported topology and geometry without making a GIS tool part of simulation behavior.
+
+Example:
+
+```sh
+./build/debug/apps/fleet_map_import/fleet_map_import map.osm.pbf \
+    --map-geojson map.geojson
+```
+
+The GeoJSON adapter is outward-facing and read-only.
+
+It does not alter `BaseMap`, routing, or robot state.
+
+---
+
+### 4.3 Trace output
+
+```text
+deterministic trace
+       |
+       v
+ fleet::geojson
+       |
+       v
+    GeoJSON
+       |
+       v
+GeoLibre / QGIS
+```
+
+Trace-derived geographic output is also outward-only.
+
+Exporters observe simulation results.
+
+They do not feed information back into robot autonomy.
+
+---
+
+## 5. Development stages
+
+These stages describe useful geospatial capabilities.
+
+They do **not** authorize implementation by themselves.
+
+Implementation scope still comes from `CURRENT_MILESTONE.md`.
+
+---
+
+### G1 — Map inspection — ACTIVE
+
+FleetSyncSim can import supported OSM PBF data and emit deterministic map GeoJSON.
+
+This supports questions such as:
+
+* did the importer retain the expected roads?
+* are intersections connected correctly?
+* are one-way edges represented as expected?
+* is imported geometry geographically located correctly?
+* are unexpected disconnected components visible?
+
+A rejected-feature diagnostic layer may be added later if importer debugging justifies it.
+
+It is not required merely because it appears in this document.
+
+---
+
+### G2 — Trace visualization — ACTIVE, INCREMENTAL
+
+FleetSyncSim can export deterministic geographic information derived from simulation traces.
+
+The important architectural property is already established:
+
+```text
+simulation state / trace
         |
-map preparation pipeline             (filter, project, simplify)
-        |
-        +---------------------------> debug_roads.geojson
-        |                             opened in GeoLibre / QGIS:
-        |                             "did we keep the right roads?"
         v
-filtered road graph
+pure outward exporter
         |
-BaseMap (+ MapVersion)               (immutable, deterministic)
-        |
-FleetSyncSim robots                  (local knowledge, local planning)
+        v
+GeoJSON
 ```
 
-The inspection step is where geospatial tooling first earns its place: a road
-graph importer that cannot be **visually verified** is a debugging nightmare.
-Terminal output cannot answer "are intersections connected?", "did we drop
-one-way streets?", "is this component disconnected?". A road network rendered
-on real geography can.
+Possible future visualization layers include:
+
+* planned routes per replan;
+* observations;
+* communication topology;
+* robot-local map beliefs;
+* world truth;
+* localization estimates;
+* truth-versus-estimate trajectories.
+
+These are directions, not current implementation requirements.
+
+In particular, visualizing ground truth must never create an information path back into robot autonomy.
 
 ---
 
-## 4. Tool roles: GeoLibre and QGIS
+### G3 — Scenario authoring — LATER
 
-Both are open-source desktop GIS workstations that can run fully locally.
-They are complements, not replacements:
+A GIS workstation could eventually help author geographic scenario elements such as:
 
-| Need | Preferred tool |
-|---|---|
-| Lightweight, fast map inspection | GeoLibre |
-| Sovereign/private workflows, air-gapped deployment | both (GeoLibre documents offline setups with mirrored dependencies) |
-| Widest format support, mature specialist plugins, heavy cartography | QGIS |
-| FleetSync scenario/debug viewing as it grows | GeoLibre (young, fast-moving, plugin-friendly) |
+* missions;
+* blocked regions;
+* communication blackout regions;
+* landmarks;
+* geographic experiment areas.
 
-GeoLibre is a **young project**; treat it as promising tooling, not
-infrastructure. If it disappears or stalls, QGIS covers the same boundary —
-and the format-only contract (section 2) guarantees the core is unaffected
-either way. That robustness is the point of the boundary.
+Such tooling should export into FleetSyncSim's existing scenario boundary.
+
+The scenario format must remain understandable and usable without requiring a GIS plugin.
 
 ---
 
-## 5. Integration by stage
+### G4 — Field collection — LATER
 
-Only the formats are decided now; each stage is activated when a milestone
-needs it, not before.
+Field collection may eventually support:
 
-### Stage G1 — map-import inspection
+* map validation;
+* landmark collection;
+* physical experiment reproduction;
+* comparison between simulation and real-world runs.
 
-Activated with the future map-importer milestone. The importer emits,
-alongside every built `BaseMap`:
-
-```text
-debug_roads.geojson        — the filtered road network it retained
-debug_rejected.geojson     — what it dropped and why (categorized)
-```
-
-Opened in GeoLibre/QGIS, import correctness becomes a visual question.
-
-### Stage G2 — simulation trace export (the first big payoff)
-
-Pairs with the scenario-runner milestone: the simulator's primary
-observability artifact is a deterministic structured trace, and a small
-exporter renders it as:
-
-```text
-trace_routes.geojson           — planned route per robot, per replan
-trace_positions.geojson        — robot positions over time
-trace_observations.geojson     — who observed what, where, when
-trace_links.geojson            — communication topology + partitions over time
-trace_belief_a.geojson         — robot A's dynamic knowledge over time
-trace_belief_b.geojson         — robot B's belief (deliberately a separate layer)
-```
-
-The belief-per-robot layers are the interesting ones: they make **distributed
-disagreement visible** — the exact phenomenon this project exists to study.
-Ground truth versus each robot's belief, side by side on a real map, turns
-"distributed map synchronization" from a log file into something a human can
-see and reason about.
-
-### Stage G3 — scenario authoring (later)
-
-Draw missions, blocked regions and blackout boundaries on the map, export to
-the scenario format. Possibly a dedicated plugin eventually. **Not now** —
-the scenario format must first prove itself hand-written.
-
-### Stage G4 — field collection (much later)
-
-Ground-truthing real environments for map preparation and experiment
-reproduction. Depends on field activity that does not exist yet.
+This remains outside current implementation scope.
 
 ---
 
 ## 6. Preferred exchange formats
 
-- **GeoJSON** — default for debug/trace export; trivially consumable everywhere.
-- **OSM PBF** — source road data (sovereign, compact, offline).
-- **GeoPackage / FlatGeobuf** — larger local datasets.
-- **PMTiles / MBTiles** — basemap tiles for fully offline viewing.
+### GeoJSON
 
-Internal FleetSyncSim types are **never** exposed through these formats
-directly; exporters translate at the boundary, and importers translate in.
+Default debug and visualization format.
 
----
+GeoJSON positions use:
 
-## 7. What this document does not authorize
+```text
+[longitude, latitude]
+```
 
-- No GIS dependency of any kind in `fleet/` (see section 2).
-- No live UI requirement: FleetSyncSim's observability artifact is the
-  deterministic trace; rendering it is an offline, after-the-fact act. A
-  "follow" mode over a trace file may come later; it changes nothing
-  architecturally.
-- No map-provider services: the long-term pipeline consumes local files
-  (e.g. a regional OSM extract), not an online map or routing API.
-- Nothing in this document is an implementation request for the current
-  milestone. Promotion follows the normal path defined in `docs/README.md`.
+FleetSyncSim's internal WGS84 representation uses named latitude and longitude fields.
+
+The conversion occurs explicitly at the output boundary.
+
+Serialized coordinate precision is an outward representation choice only.
+
+It must never replace or feed back into internal map-domain precision.
 
 ---
 
-## 8. Relationship to existing decisions
+### OSM PBF
 
-- `ADR-001` — immutable BaseMap: importers produce new `BaseMap` revisions;
-  tools never mutate them.
-- `ADR-002` — determinism: trace export must be a pure function of the
-  simulation run (same seed, identical trace, identical GeoJSON).
-- `ADR-007` — robot autonomy boundary: visualization observes robots; it never
-  feeds them. A robot may not consume rendered state (that would be oracle
-  knowledge).
-- `PROJECT_VISION.md` pillars 1 and 3 — sovereign maps and local world models:
-  this tooling exists to build and inspect them, not to host them.
+Primary source format for offline road-network import.
+
+It is compact, widely available, and suitable for locally controlled workflows.
+
+---
+
+### Possible later formats
+
+If dataset scale or future workflows justify them:
+
+* GeoPackage;
+* FlatGeobuf;
+* PMTiles;
+* MBTiles.
+
+Their presence here does not authorize implementation.
+
+---
+
+## 7. GeoLibre and QGIS
+
+GeoLibre and QGIS are external workstation choices.
+
+They are not FleetSyncSim dependencies.
+
+Either may be used to inspect standard output formats.
+
+The project should prefer portable data contracts over tool-specific integration so that changing workstation software does not affect the autonomy core.
+
+A dedicated plugin may eventually become useful for scenario authoring or interactive analysis, but it is not required by the architecture.
+
+Tool preference may change over time without changing FleetSyncSim's domain model.
+
+---
+
+## 8. What this document does not authorize
+
+This document does **not** authorize:
+
+* GIS libraries inside unrelated FleetSyncSim domain modules;
+* cloud map-provider runtime dependencies;
+* live visualization coupled into simulation semantics;
+* a GIS-controlled robot state;
+* automatic implementation of every proposed visualization layer;
+* scenario-authoring plugins;
+* field-collection features;
+* changes to current milestone scope.
+
+Promotion into implementation scope follows `CURRENT_MILESTONE.md`.
+
+---
+
+## 9. Relationship to ADRs
+
+The authoritative architecture details live in the relevant ADR files under:
+
+```text
+docs/design_decisions/
+```
+
+Geospatial work currently intersects decisions concerning:
+
+* immutable base-map ownership;
+* deterministic behavior;
+* robot autonomy boundaries;
+* world truth versus belief;
+* WGS84 map geometry;
+* one-way topology;
+* OSM import;
+* GeoJSON export;
+* localization.
+
+Do not duplicate the complete reasoning or exact contracts of those ADRs here.
+
+When exact semantics matter, discover and read the relevant ADR:
+
+```sh
+find docs/design_decisions -maxdepth 1 -name 'ADR-*.md' -printf '%f\n' | sort
+```
+
+or search by topic:
+
+```sh
+rg -n "MapGeometry|OSM|GeoJSON|one-way|WGS84|localization" \
+    docs/design_decisions/ADR-*.md
+```
+
+This document describes the **tooling boundary**.
+
+The ADRs define the **architecture contracts**.
+
+---
+
+## 10. Relationship to external physical simulation
+
+Geospatial tooling and physical simulation are separate concerns.
+
+```text
+GeoLibre / QGIS
+    map inspection and geographic visualization
+
+NVIDIA Isaac Sim
+    physical world, robot motion, and simulated sensors
+```
+
+Isaac Sim does not belong inside the GIS tooling boundary defined by this document.
+
+Its long-term architectural placement is described directionally in `PROJECT_VISION.md`.
+
+Any future Isaac integration becomes implementation scope only when promoted into `CURRENT_MILESTONE.md` and, if it creates a durable architecture boundary, recorded in an ADR.

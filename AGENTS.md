@@ -1,95 +1,378 @@
 # AGENTS.md — Engineering Rules for Contributors and Coding Agents
 
-Normative. This file constrains how work is done in this repository,
-for humans and AI agents alike. Authority levels of all documents are
-defined in [docs/README.md](docs/README.md); when this file and another
-normative document disagree, fix the disagreement in a docs commit
-before writing code.
+Normative.
+
+This file defines how work is performed in this repository by humans and AI
+agents. Document authority is defined in `docs/README.md`.
+
+If two normative documents disagree, stop and fix the disagreement before
+building new behavior.
+
+---
+
+## 0. Context-loading protocol
+
+Do not load the entire repository documentation before every task.
+
+At the start of a coding session:
+
+1. inspect the repository, because the owner may have committed or pushed
+   since the previous session:
+
+   ```sh
+   git status
+   git log -5 --oneline
+   ```
+
+2. read, in this order:
+
+   ```text
+   AGENTS.md
+   docs/CURRENT_MILESTONE.md
+   docs/AI_CONTEXT.md
+   ```
+
+3. read only the ADRs relevant to the subsystem being changed;
+
+4. inspect the implementation and tests directly involved in the task.
+
+Read `PROJECT_VISION.md`, roadmaps, research documents, or tooling documents
+only when the task requires long-term design context.
+
+Do not preload every ADR or research document "just in case".
+
+`docs/AI_CONTEXT.md` is an orientation aid, not an authority source. If it
+conflicts with `AGENTS.md`, `CURRENT_MILESTONE.md`, an ADR, or the code/tests,
+the authoritative source wins and the stale context document should be
+corrected.
+
+Never assume conversation history is newer than the repository.
+
+If `.ai/SESSION.md` exists, it may be read after repository inspection as a
+local session handoff. It is non-authoritative and must never override Git or
+normative documentation.
+
+---
 
 ## 1. Scope discipline
 
-- [docs/CURRENT_MILESTONE.md](docs/CURRENT_MILESTONE.md) defines the
-  normal implementation scope. Do not implement a feature solely
-  because it appears in a vision, roadmap, research, or tooling
-  document.
-- New architectural contracts require an ADR
-  (`docs/design_decisions/ADR-NNN-*.md`, sequential numbering, never
-  reserved). Do not write an ADR merely because a commit feels big —
-  only for durable contracts others will build against.
-- Keep changes milestone-relevant and review-sized. One feature commit
-  should be reviewable in one sitting.
+`docs/CURRENT_MILESTONE.md` defines normal implementation scope.
+
+Do not implement a capability solely because it appears in:
+
+* `PROJECT_VISION.md`;
+* a roadmap;
+* research notes;
+* tooling documentation;
+* a future milestone;
+* an external framework or simulator.
+
+Follow the current milestone in order. Do not silently skip ahead in a
+milestone ladder.
+
+New durable architectural contracts require an ADR:
+
+```text
+docs/design_decisions/ADR-NNN-*.md
+```
+
+ADR numbers are sequential and never reserved.
+
+Do not create an ADR merely because a change is large. Create one when future
+work will rely on the decision as a contract.
+
+Keep feature changes review-sized. A feature commit should normally be
+reviewable in one sitting.
+
+---
 
 ## 2. Git discipline
 
-- The AI implements; the human reviews before every feature commit.
-  Never commit work that has not been reviewed unless explicitly told
-  to.
-- Never push, rebase, amend, or otherwise rewrite history without
-  explicit instruction. Check `git status` and `git log` first: the
-  owner sometimes commits and pushes between sessions.
-- Commits carry no AI-attribution trailers or tool metadata. Message
-  style: `feat(scope): summary`, imperative, body explains why.
-- Stage files explicitly by path. Never `git add -A`. Generated outputs
-  (traces, build dirs) are never committed; ignore rules stay narrowly
-  scoped.
+The AI implements; the human reviews before feature commits unless explicitly
+instructed otherwise.
 
-## 3. Determinism discipline (the project's core property)
+Before changing Git state, inspect it.
 
-Every observable behavior is a pure function of `(scenario, resolved
-seed)`:
+Never without explicit instruction:
 
-- No wall-clock time, no pointer values, no unordered-container
-  iteration may influence behavior or any output (including the trace).
-- No `std` distributions in simulation code; randomness flows only
-  through `fleet::simulation::DeterministicRng` (ADR-006).
-- Same scenario + same seed must produce byte-identical traces. When a
-  change intentionally alters output, say so in the commit message and
-  prove non-regression where behavior is meant to be unchanged.
-- Self-scheduling effects must always land strictly later than their
-  predecessor; validate timing settings at a single choke point
-  (see ADR-010 for the movement pattern).
+* push;
+* rebase;
+* amend;
+* reset published history;
+* force-push;
+* change remotes;
+* change Git configuration.
 
-## 4. Boundaries that must never blur
+Stage files explicitly by path.
 
-- **Robot autonomy (ADR-007):** robots know nothing about networking,
-  the event queue, the scenario, or visualization. They are driven
-  through their public API.
-- **Wiring lives in the scenario runner (ADR-009/010):**
-  `ScenarioRunner` schedules and wires; it must not absorb robot,
-  network, station, reconciliation, or planning logic.
-- **Observation is read-only:** trace sinks and future exporters
-  observe; they never influence a run.
-- **World truth (ADR-011):** simulation ground truth is never directly
-  accessible to robots — only through an observation model. Robots do
-  not depend on `fleet::world` in any direction.
+Never use:
+
+```sh
+git add -A
+```
+
+Generated outputs, traces, and build directories are not committed unless they
+are intentional test fixtures.
+
+Commit messages use:
+
+```text
+feat(scope): summary
+fix(scope): summary
+docs(scope): summary
+```
+
+The body explains the engineering reason and important contracts.
+
+Do not add AI attribution trailers, tool metadata, or generated-by text.
+
+---
+
+## 3. Determinism discipline
+
+Deterministic reference behavior is a core project property.
+
+Observable simulation behavior must be a function of:
+
+```text
+(scenario, resolved seed)
+```
+
+unless an accepted ADR explicitly introduces another input.
+
+Do not allow the following to influence behavior or deterministic output:
+
+* wall-clock time;
+* pointer values;
+* unordered-container iteration order;
+* unspecified random-distribution implementations;
+* hidden global state.
+
+Simulation randomness flows through:
+
+```text
+fleet::simulation::DeterministicRng
+```
+
+Do not use standard-library probability distributions in deterministic
+simulation paths.
+
+Random draw consumption is part of a model's contract when changing it could
+shift later deterministic outcomes.
+
+Same scenario + same resolved seed must produce byte-identical structured
+traces where the relevant ADR promises this.
+
+If output intentionally changes, state why and prove non-regression for
+behavior intended to remain unchanged.
+
+Self-scheduling effects must not create zero-time retry loops. Repeating effects
+schedule strictly later than their predecessor unless same-tick behavior is an
+explicit event-ordering contract.
+
+---
+
+## 4. Architectural boundaries that must not blur
+
+### Robot autonomy — ADR-007
+
+Robots do not know about:
+
+* networking implementation;
+* the event queue;
+* scenario files;
+* visualization;
+* external simulators.
+
+Robots are driven through their public API.
+
+### Scenario runner — ADR-009/010
+
+`ScenarioRunner` owns orchestration and wiring.
+
+It must not absorb domain logic belonging to:
+
+* Robot;
+* planning;
+* reconciliation;
+* networking;
+* ControlStation;
+* localization models.
+
+Injected events and loaded scenario events use the same effect path.
+
+### Observation and export
+
+Trace sinks, GeoJSON exporters, consoles, and debugging tools observe state.
+
+Observation must not change simulation behavior.
+
+### World truth — ADR-011
+
+Simulation ground truth is not directly available to robot autonomy.
+
+Truth reaches robot belief only through an explicit sensing or measurement
+boundary.
+
+Robots do not depend on `fleet::world`.
+
+### Localization — ADR-016/017
+
+`GroundTruthPose` represents simulator truth.
+
+`LocalizationEstimate` represents information available through the
+localization boundary.
+
+A localization estimate's `estimated_at` is the time the estimate refers to,
+not the time a caller happens to inspect it.
+
+Future localization consumers must not bypass the measurement boundary to read
+truth directly.
+
+### External simulation and hardware
+
+External systems such as NVIDIA Isaac Sim, ROS 2, Gazebo, or future physical
+robots are adapter-side systems.
+
+They must not redefine FleetSyncSim domain types or become hidden dependencies
+of the deterministic core.
+
+They become implementation scope only when promoted into
+`CURRENT_MILESTONE.md`.
+
+---
 
 ## 5. Build and validation discipline
 
-- Three presets must pass before any feature commit: `debug`
-  (`-Werror`), `asan` (ASan+UBSan), `tsan`. TSan on GCC 13 requires
-  `setarch $(uname -m) -R` per-process (never change sysctl).
-- Check build and test exit codes explicitly; never trust output of a
-  possibly-stale binary. When in doubt, rebuild cleanly.
-- Every feature adds or extends tests at the same level the behavior
-  lives (unit for domain semantics, runner-level for orchestration,
-  on-disk scenario files for the declarative contract).
+Before a feature commit, all required presets must pass:
+
+* `debug` with warnings as errors;
+* `asan` with ASan+UBSan;
+* `tsan`.
+
+For the current GCC 13 environment, TSan requires the existing per-process
+workaround:
+
+```sh
+setarch $(uname -m) -R ...
+```
+
+Do not change host `sysctl` settings.
+
+Check command exit codes explicitly.
+
+Do not trust a binary that may be stale.
+
+When fixture copying, generated configuration, or sanitizer state is suspect,
+reconfigure or rebuild before diagnosing the product code.
+
+Every feature must add tests at the level where its behavior lives:
+
+* domain semantics -> unit tests;
+* orchestration -> runner/integration tests;
+* declarative behavior -> scenario tests;
+* serialization contracts -> output tests.
+
+Preserve the founding trace when behavior outside its scenario is intended to
+remain unchanged.
+
+Run:
+
+```sh
+git diff --check
+```
+
+before review.
+
+---
 
 ## 6. Dependencies and tooling
 
-- New third-party code must be pinned (FetchContent tag), minimal, and
-  justified in the introducing commit; parser-type dependencies are
-  `PRIVATE` to the consuming target and never leak into public headers.
-- Environment: C++20, GCC 13, CMake >= 3.21 presets. Do not introduce
-  clang-format/clang-tidy/ninja config without instruction.
-- Code style follows the existing tree: `fleet::<module>` namespaces,
-  contract-first doc comments on public types, strong types from
-  `fleet/common`, no exceptions to ADR decisions.
+Environment:
 
-## 7. Docs hygiene
+* C++20;
+* GCC 13;
+* CMake >= 3.21;
+* preset-based builds.
 
-- Update `CURRENT_MILESTONE.md` only to reflect genuinely satisfied (or
-  re-scoped) criteria, not aspirations.
-- `docs/geospatial.md` describes the tooling boundary between external
-  GIS tools and this core; simulator code never depends on GIS tooling.
-- A reference to a file that does not exist is a bug: fix dangling doc
-  references in the same commit that introduces them.
+New third-party dependencies must be:
+
+* justified;
+* pinned;
+* minimal;
+* scoped to the target that consumes them.
+
+Parser/tool dependencies remain `PRIVATE` where possible and must not leak into
+public domain headers.
+
+Do not introduce formatting, linting, build-system, GIS, ROS, or simulator
+dependencies merely for convenience.
+
+Code follows existing repository conventions:
+
+* `fleet::<module>` namespaces;
+* strong types from `fleet/common`;
+* contract-first public documentation;
+* explicit deterministic behavior;
+* existing ADR decisions.
+
+---
+
+## 7. Documentation discipline
+
+Documents have narrow jobs:
+
+```text
+AGENTS.md
+    how work is performed
+
+CURRENT_MILESTONE.md
+    what may be implemented now
+
+AI_CONTEXT.md
+    compact orientation for contributors/agents
+
+design_decisions/
+    durable accepted contracts
+
+PROJECT_VISION.md
+    long-term direction
+
+research/
+    evidence and exploration
+
+tooling documents
+    external development workflows
+```
+
+Do not duplicate detailed implementation history across several documents.
+
+`CURRENT_MILESTONE.md` records the active milestone, not a complete project
+changelog.
+
+`README.md` is for humans discovering and running the project, not a second
+architecture database.
+
+A reference to a nonexistent file is a documentation bug.
+
+When an architectural milestone materially changes the project topology,
+update `docs/AI_CONTEXT.md` in the same documentation scope.
+
+---
+
+## 8. Agent reporting discipline
+
+Do not repeat the entire project history after every task.
+
+A review report should normally contain only:
+
+1. behavior/contracts changed;
+2. files changed;
+3. tests added or changed;
+4. validation results;
+5. determinism/compatibility impact;
+6. ADR/documentation impact;
+7. blockers;
+8. proposed commit scope.
+
+Use exact facts rather than long project recaps.

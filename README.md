@@ -1,99 +1,129 @@
 # FleetSyncSim
 
 FleetSyncSim is a deterministic C++20 simulation platform for exploring
-**sovereign cooperative autonomy for robots**.
+**sovereign positioning, mapping, navigation, and cooperative autonomy for
+robots**.
 
-The long-term goal is to study robots that can navigate using locally
-controlled maps, maintain independent world models, exchange information
-peer-to-peer, and continue operating when centralized infrastructure,
-communications, or positioning sources become unavailable.
+The project studies robots that can:
 
-The current implementation focuses on one foundational problem:
+* navigate from locally controlled map data;
+* maintain independent world models;
+* exchange useful information peer-to-peer;
+* continue operating through communication or positioning loss;
+* make degraded state observable instead of silently depending on infrastructure.
 
-**distributed map knowledge under unreliable communications**.
+> **Status: M2 complete; M3 resilient localization is in progress.**
+>
+> The deterministic distributed-autonomy platform, movement/sensing layer,
+> OSM/GeoJSON integration, and interactive scenario tooling are established.
+> M3 currently studies positioning degradation: the localization boundary and
+> deterministic noisy GNSS are implemented; outage and stale-estimate semantics
+> are next.
 
-Robots maintain local maps, exchange sequenced map deltas over unreliable
-links, reconcile observations, and reroute autonomously while the control
-station may be unreachable.
-
-> **Status: Milestone M1 complete — deterministic single-threaded reference
-> simulator.**
-
-Currently implemented:
-
-- immutable `BaseMap`;
-- CSR `Graph`;
-- per-participant `DynamicMapOverlay`;
-- composed `MapView`;
-- deterministic `AStarPlanner`;
-- sequenced `MapDelta` reconciliation;
-- logical simulation time;
-- deterministic event scheduling;
-- seeded network faults:
-  - latency;
-  - loss;
-  - duplication;
-  - emergent reordering;
-- directed link state and partitions;
-- `ControlStation` fleet knowledge aggregation;
-- reconnect synchronization by idempotent re-announcement;
-- autonomous robot-local knowledge and rerouting;
-- declarative JSON scenarios, `--scenario/--seed/--trace` CLI;
-- deterministic structured trace (console + JSONL);
-- robot movement with replan-from-position and mission completion
-  (ADR-010);
-- world ground truth + position-based sensing behind a strict
-  truth→sensor→belief boundary (ADR-011);
-- `MapGeometry`: optional WGS84 side of `BaseMap` — node coordinates,
-  edge polylines, immutable, never read by planning (ADR-012);
-- deterministic OSM PBF import into `BaseMap` (retained-node topology,
-  preserved way geometry, one-way support, haversine length costs,
-  import-twice determinism; ADR-013/014) with a thin `fleet_map_import`
-  CLI;
-- GeoJSON output adapters: `BaseMap` debug export and trace trajectory
-  export, pure outward-facing, deterministic, `[lon, lat]` handled in
-  one tested place (ADR-015; geospatial G1/G2 active);
-- interactive console (`fleet_console`): stepping, event injection and
-  live state inspection over the runner's public APIs — same event
-  semantics as scenario files, byte-identical stepped runs;
-- localization boundary (ADR-016, M3): `GroundTruthPose`,
-  `LocalizationEstimate`, `GnssModel` with perfect/unavailable models;
-- deterministic noisy GNSS (ADR-017, M3): metric-frame noise on raw
-  integer RNG draws — reproducible degradation with no libm in the
-  noise path.
-
-See:
-
-- [Current milestone](docs/CURRENT_MILESTONE.md)
-- [Project vision](docs/PROJECT_VISION.md)
-- [Documentation index](docs/README.md)
-- [Design records](docs/design_decisions/)
-- [Research](docs/research/)
+FleetSyncSim began with **distributed robot-local map knowledge under unreliable
+communication**. It now provides a broader deterministic autonomy test platform
+with movement, truth-versus-belief sensing, real road networks, local planning,
+distributed reconciliation, geospatial observability, and an emerging
+localization/PNT layer.
 
 ---
 
-## The engineering problem
+## Core idea
 
-1. **Local autonomy.**
+Central infrastructure may improve capability, but it should not automatically
+become a hard runtime dependency.
 
-   Navigation, local mapping, peer-to-peer exchange, and replanning must not
-   have a hard dependency on the control station.
+Examples:
 
-2. **Local knowledge under imperfect communication.**
+```text
+control station unavailable
+        |
+        v
+robots continue locally
+        |
+        v
+peer knowledge diverges
+        |
+        v
+connectivity returns
+        |
+        v
+knowledge reconciles
+```
 
-   Every robot maintains its own view of dynamic state. Messages may arrive
-   delayed, duplicated, reordered, or not at all.
+and:
 
-3. **Graceful convergence.**
+```text
+GNSS available
+      |
+      v
+localization estimate
 
-   Robots must remain useful while disconnected and reconcile distributed
-   knowledge when communication becomes available again, without requiring
-   distributed consensus for every observation.
+GNSS unavailable
+      |
+      v
+last estimate becomes stale
+      |
+      v
+later: dead reckoning / local sensing / map matching
+      |
+      v
+controlled degradation
+```
 
-4. **Deterministic reference behavior.**
+The deterministic simulator provides a behavioral reference for studying these
+conditions reproducibly.
 
-   A scenario plus seed must reproduce the same observable simulation trace.
-   Future concurrent implementations are validated against this reference.
+---
+
+## Currently implemented
+
+* deterministic C++20 discrete-event simulation;
+* immutable base maps and robot-local dynamic overlays;
+* deterministic A* planning and autonomous rerouting;
+* robot movement and mission completion;
+* unreliable P2P communication with latency, loss, duplication, reordering and
+  partitions;
+* sequenced distributed map reconciliation;
+* ControlStation aggregation and reconnect synchronization;
+* world truth separated from robot-local sensing and belief;
+* deterministic JSON scenarios and structured JSONL traces;
+* interactive scenario stepping, state inspection and event injection;
+* WGS84 map geometry and one-way topology;
+* deterministic OSM PBF import;
+* deterministic GeoJSON debugging/export;
+* localization truth/estimate boundary;
+* perfect, unavailable and deterministic noisy GNSS models.
+
+For exact active implementation scope, see:
+
+* [`docs/CURRENT_MILESTONE.md`](docs/CURRENT_MILESTONE.md)
+
+For a compact architecture map:
+
+* [`docs/AI_CONTEXT.md`](docs/AI_CONTEXT.md)
+
+For accepted architectural contracts:
+
+* [`docs/design_decisions/`](docs/design_decisions/)
+
+---
+
+## Documentation
+
+* [Current milestone](docs/CURRENT_MILESTONE.md)
+* [Compact architecture context](docs/AI_CONTEXT.md)
+* [Project vision](docs/PROJECT_VISION.md)
+* [Documentation guide](docs/README.md)
+* [Design decisions](docs/design_decisions/)
+* [Geospatial tooling boundary](docs/geospatial.md)
+* [Research](docs/research/)
+
+`PROJECT_VISION.md` describes long-term direction.
+
+`CURRENT_MILESTONE.md` defines what may be implemented now.
+
+ADRs define durable architectural contracts.
 
 ---
 
@@ -101,12 +131,13 @@ See:
 
 Requirements:
 
-- Linux
-- CMake >= 3.21
-- GCC >= 11 or Clang >= 14
+* Linux;
+* CMake >= 3.21;
+* C++20 compiler;
+* project development environment currently uses GCC 13.
 
-The first configure fetches GoogleTest and nlohmann/json and therefore
-requires network access. Later configures can operate offline.
+The first configure may require network access to fetch pinned development
+dependencies.
 
 ```sh
 cmake --preset debug
@@ -114,37 +145,74 @@ cmake --build --preset debug
 ctest --preset debug
 ```
 
-Sanitized builds: `cmake --preset asan|tsan` (TSan on GCC 13 needs
-`setarch $(uname -m) -R` for builds and test runs; ASLR entropy issue,
-per-process workaround only).
-
-### Running scenarios
+Sanitized builds:
 
 ```sh
-# Built-in founding scenario (station partition, observation, reroute,
-# reconnect, resynchronize):
-./build/debug/apps/fleet_sim/fleet_sim
-
-# Declarative scenario file + explicit seed + machine-readable trace:
-./build/debug/apps/fleet_sim/fleet_sim \
-    --scenario scenarios/station_partition.json --seed 1234 --trace run.jsonl
+cmake --preset asan
+cmake --build --preset asan
+ctest --preset asan
 ```
 
-Seed precedence: `--seed` overrides the scenario file's `seed`, which
-overrides the documented default `0`; the resolved seed is logged in the
-first trace events. Same scenario + same resolved seed produce a
-byte-identical trace. Scenario format and trace contract: ADR-009;
-movement semantics (`movement` + `duration_ms` keys): ADR-010 — see
-`scenarios/delivery_reroute.json` (scripted reroute) and
-`scenarios/world_sensing.json` (physical sensing, ADR-011).
-
-### Interacting with a scenario
+TSan uses the repository's established per-process ASLR workaround in the
+current GCC 13 environment:
 
 ```sh
-# Step time, inject observations/link changes/world truth, inspect
-# robot and station knowledge live:
+setarch $(uname -m) -R cmake --build --preset tsan
+setarch $(uname -m) -R ctest --preset tsan
+```
+
+Do not disable ASLR system-wide.
+
+---
+
+## Running a scenario
+
+Built-in founding scenario:
+
+```sh
+./build/debug/apps/fleet_sim/fleet_sim
+```
+
+Run a declarative scenario with an explicit seed and JSONL trace:
+
+```sh
+./build/debug/apps/fleet_sim/fleet_sim \
+    --scenario scenarios/station_partition.json \
+    --seed 1234 \
+    --trace run.jsonl
+```
+
+Seed precedence is:
+
+```text
+CLI --seed
+    |
+    v
+scenario seed
+    |
+    v
+default seed 0
+```
+
+Where the relevant ADR defines byte-stable behavior, the same scenario and
+resolved seed reproduce the same structured trace.
+
+---
+
+## Interactive console
+
+The console operates through `ScenarioRunner` public APIs.
+
+It does not introduce separate simulation semantics.
+
+```sh
 ./build/debug/apps/fleet_console/fleet_console \
     --scenario scenarios/world_sensing.json
+```
+
+Example session:
+
+```text
 > run 1500
 > robots
 > world C-D blocked
@@ -152,13 +220,79 @@ movement semantics (`movement` + `duration_ms` keys): ADR-010 — see
 > finish
 ```
 
-Injected events run through the same effect path as scenario-file
-events; a stepped run produces a byte-identical trace to a one-shot run
-(tested).
+Loaded scenario events and injected events use the same effect path.
 
-### Importing real maps
+Stepped execution is tested against one-shot execution for deterministic
+equivalence.
+
+---
+
+## Importing real maps
+
+FleetSyncSim can deterministically import supported OSM PBF road data into:
+
+```text
+BaseMap
+├── Graph
+└── MapGeometry
+```
+
+Example:
 
 ```sh
 ./build/debug/apps/fleet_map_import/fleet_map_import map.osm.pbf \
     --map-geojson map.geojson
 ```
+
+The importer preserves relevant road geometry, respects supported one-way
+semantics, computes metric traversal costs, and fails explicitly on unsupported
+topology rather than silently altering it.
+
+GeoJSON output is outward-facing debug/inspection data and does not participate
+in planning state.
+
+---
+
+## Deterministic reference behavior
+
+Determinism is a core engineering property of the project.
+
+Simulation code avoids:
+
+* wall-clock time;
+* behavior derived from pointer values;
+* observable unordered-container iteration;
+* unspecified standard-library probability distributions.
+
+Randomness flows through the project's deterministic RNG abstraction.
+
+The deterministic simulator remains the reference behavior even if
+higher-fidelity physical simulation is added later.
+
+---
+
+## Long-term direction
+
+FleetSyncSim's north star is:
+
+> **Sovereign positioning, mapping, navigation, and cooperative autonomy for
+> robots.**
+
+Long-term experiments may include:
+
+* GNSS degradation and outages;
+* dead reckoning;
+* IMU and wheel odometry;
+* visual or LiDAR odometry;
+* map matching;
+* uncertainty-aware autonomy;
+* cooperative localization;
+* physical/sensor simulation through external environments such as NVIDIA
+  Isaac Sim;
+* eventually real robot adapters.
+
+These are promoted incrementally through milestones and ADRs.
+
+Their presence in the vision does not make them current implementation scope.
+
+See [`docs/PROJECT_VISION.md`](docs/PROJECT_VISION.md).

@@ -26,3 +26,6 @@ research/
 # the tiny committed test fixtures are excepted.
 *.osm.pbf
 !tests/fixtures/osm/*.osm.pbf
+
+
+.ai/
