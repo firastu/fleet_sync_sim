@@ -10,8 +10,10 @@
 #include "fleet/map/map_delta.hpp"
 #include "fleet/network/network_simulator.hpp"
 #include "fleet/scenario/scenario.hpp"
+#include "fleet/simulation/deterministic_rng.hpp"
 #include "fleet/simulation/event_queue.hpp"
 #include "fleet/world/observation_model.hpp"
+#include "fleet/world/truth_pose.hpp"
 #include "fleet/world/world.hpp"
 
 namespace fleet::scenario {
@@ -49,6 +51,25 @@ namespace {
     return text;
 }
 
+// Trace/inspection name of a GNSS model spec (ADR-018): the scenario
+// vocabulary, not a C++ type name.
+[[nodiscard]] std::string gnss_model_name(const GnssModelSpec& spec) {
+    switch (spec.kind) {
+        case GnssModelSpec::Kind::Perfect:
+            return "perfect";
+        case GnssModelSpec::Kind::Unavailable:
+            return "unavailable";
+        case GnssModelSpec::Kind::Noisy:
+            return "noisy";
+    }
+    return "?";
+}
+
+// Fixed domain discriminator for GNSS RNG sub-streams (ADR-018). NEVER
+// change: published (scenario, seed) replay compatibility depends on it.
+// Value: ASCII "GNSS_STR" big-endian.
+constexpr std::uint64_t kGnssStreamDomain = 0x474E53535F535452ULL;
+
 }  // namespace
 
 ScenarioRunner::ScenarioRunner(const map::BaseMap& base, Scenario scenario,
@@ -64,6 +85,32 @@ ScenarioRunner::ScenarioRunner(const map::BaseMap& base, Scenario scenario,
         (scenario_.movement.ms_per_cost_unit == 0 || scenario_.movement.retry_ms == 0)) {
         throw std::invalid_argument(
             "ScenarioRunner: movement ms_per_cost_unit and retry_ms must be >= 1");
+    }
+    // Localization choke point (ADR-018): the same rules the loader
+    // enforces for files, applied to programmatically constructed
+    // scenarios. Models are constructed EAGERLY through the single
+    // factory so invalid noise configuration fails here, not at the
+    // first sample. Each robot gets its OWN GNSS RNG, derived from the
+    // resolved seed by specified arithmetic over its stable RobotId —
+    // robot-local streams, schedule-independent of one another.
+    // for 0.0 : initial physical orientation at scenario start is north.
+    rest_heading_rad_.assign(scenario_.robots.size(), 0.0);
+    if (scenario_.localization.enabled) {
+        if (scenario_.localization.gnss_period_ms == 0) {
+            throw std::invalid_argument(
+                "ScenarioRunner: localization gnss period_ms must be >= 1");
+        }
+        if (base_.geometry() == nullptr) {
+            throw std::invalid_argument(
+                "ScenarioRunner: localization requires a map with geographic "
+                "geometry (truth pose is derived from it)");
+        }
+        for (std::size_t index = 0; index < scenario_.robots.size(); ++index) {
+            gnss_models_.push_back(make_gnss_model(scenario_.localization.initial_model));
+            gnss_rngs_.push_back(std::make_unique<simulation::DeterministicRng>(
+                simulation::derive_stream_seed(resolved_seed_, kGnssStreamDomain,
+                                               scenario_.robots[index].id.value())));
+        }
     }
 }
 
@@ -320,6 +367,20 @@ void ScenarioRunner::apply_scenario_event(const ScenarioEvent& event) {
                 sense_for(index, event.at);
             }
         }
+    } else if (const SetGnssModelAction* gnss_switch =
+                   std::get_if<SetGnssModelAction>(&event.action)) {
+        // Scenario policy (ADR-016/018): an outage is WHICH model is
+        // active — replace it and nothing else. No immediate sample, no
+        // randomness consumed: the next SCHEDULED sample measures with
+        // the model now active. In a localization-disabled run the
+        // variant cannot reach here (the loader rejects the action; the
+        // runner never enqueues one), so the index access is safe.
+        const std::size_t index = index_of_robot(gnss_switch->robot);
+        gnss_models_[index] = make_gnss_model(gnss_switch->model);
+        emit(TraceEvent{event.at,
+                        robot_name_of(gnss_switch->robot),
+                        "gnss_model",
+                        {{"model", gnss_model_name(gnss_switch->model)}}});
     }
 }
 
@@ -329,6 +390,17 @@ void ScenarioRunner::advance_robot(std::size_t index) {
     const std::string name = robot_name_of(robot.id());
 
     if (robot.state().in_transit.has_value()) {
+        if(scenario_.localization.enabled) {
+            // Orientation truth (ADR-018): physical facing OUTLIVES the
+            // traversal. Record the completed traversal's final-segment
+            // bearing (the truth pose at the arrival tick, fraction 1) BEFORE
+            // the transit commits — at-rest truth then carries the arrival
+            // orientation instead of resetting. Instantaneous re-orientation
+            // at graph corners is the accepted abstraction (no steering).
+            rest_heading_rad_[index] =
+                world::truth_pose(base_, robot.state(), rest_heading_rad_[index], now)
+                    .heading_rad;
+        }
         // This event is the arrival: commit the traversal.
         const bool mission_complete = robot.complete_transit();
         if (mission_complete) {
@@ -406,6 +478,68 @@ void ScenarioRunner::sense_for(std::size_t index, common::Tick now) {
     }
 }
 
+std::unique_ptr<localization::GnssModel> ScenarioRunner::make_gnss_model(
+    const GnssModelSpec& spec) {
+    switch (spec.kind) {
+        case GnssModelSpec::Kind::Perfect:
+            return std::make_unique<localization::PerfectGnss>();
+        case GnssModelSpec::Kind::Unavailable:
+            return std::make_unique<localization::UnavailableGnss>();
+        case GnssModelSpec::Kind::Noisy:
+            // NoisyGnss's constructor validates (finite, non-negative) —
+            // the one validation point for noise configuration.
+            return std::make_unique<localization::NoisyGnss>(spec.noise);
+    }
+    throw std::invalid_argument("ScenarioRunner: unknown GNSS model kind");
+}
+
+void ScenarioRunner::sample_gnss(std::size_t index) {
+    robot::Robot& robot = *robots_[index];
+    const common::Tick now = queue_->clock().now();
+
+    // Truth on the simulation side only (ADR-016/018): derived from the
+    // movement state and map geometry, never from the robot's belief.
+    const localization::GroundTruthPose truth = world::truth_pose(base_, robot.state(),rest_heading_rad_[index], now);
+
+    // The measurement boundary: the ACTIVE model decides fix or no fix.
+    // An outage is UnavailableGnss sitting in gnss_models_[index] — no
+    // special case here.
+    const std::optional<localization::LocalizationEstimate> fix =
+        gnss_models_[index]->measure(truth, *gnss_rngs_[index]);
+
+    // Retention is robot-local (#16): a fix replaces the retained
+    // estimate, a no-fix retains it — the sample outcome is all the
+    // robot ever learns.
+    robot.apply_gnss_sample(fix);
+
+    // The trace event carries BELIEF only: outcome plus the retained
+    // estimate and its age. Truth coordinates are deliberately absent —
+    // truth stays visible through movement events (departure/arrival),
+    // never inside a robot-local localization event. Position and
+    // heading are 6-decimal strings: the shared double formatter's two
+    // decimals cannot separate neighboring map positions.
+    TraceEvent event{now, robot_name_of(robot.id()), "gnss_sample",
+                     {{"outcome", std::string{fix.has_value() ? "fix" : "no_fix"}}}};
+    if (const std::optional<localization::LocalizationEstimate>& estimate =
+            robot.localization().estimate();
+        estimate.has_value()) {
+        event.fields.emplace_back("estimated_at",
+                                  static_cast<std::int64_t>(estimate->estimated_at.value));
+        event.fields.emplace_back(
+            "age", static_cast<std::int64_t>(robot.localization().age_at(now).value()));
+        event.fields.emplace_back(
+            "position", std::format("{:.6f},{:.6f}", estimate->position.latitude_deg,
+                                    estimate->position.longitude_deg));
+        event.fields.emplace_back("heading", std::format("{:.6f}", estimate->heading_rad));
+    }
+    emit(std::move(event));
+
+    // Strictly later reschedule (ADR-005/010/018): period_ms >= 1 is
+    // enforced at the constructor choke point — no zero-time loop.
+    queue_->schedule(now + scenario_.localization.gnss_period_ms,
+                     [this, index] { sample_gnss(index); });
+}
+
 void ScenarioRunner::begin() {
     if (begun_) {
         return;
@@ -413,6 +547,13 @@ void ScenarioRunner::begin() {
     begun_ = true;
     wire_world();
     schedule_events();
+    if (scenario_.localization.enabled) {
+        for (std::size_t i = 0; i < robots_.size(); ++i) {
+            queue_->schedule(
+                common::Tick{0},
+                [this, i] { sample_gnss(i); });
+        }
+    }
 }
 
 ScenarioRunner::Result ScenarioRunner::run_until(common::Tick until) {

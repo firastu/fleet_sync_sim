@@ -21,7 +21,9 @@ using TraceValue = std::variant<std::string, std::int64_t, double, bool>;
 //
 // Contract:
 //   - `type` names are stable ("scenario", "seed", "route", "link_state",
-//     "observation", "send", "delivery", "reconcile", "resynchronize");
+//     "observation", "send", "delivery", "reconcile", "resynchronize",
+//     "departure", "arrival", "mission_complete", "world_edge",
+//     "gnss_sample", "gnss_model");
 //   - fields appear in insertion order — deterministic by construction;
 //   - values are deterministic functions of (scenario, resolved seed):
 //     no wall-clock timestamps, no pointer addresses, no unordered-container

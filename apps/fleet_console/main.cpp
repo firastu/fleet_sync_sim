@@ -184,6 +184,29 @@ private:
         std::cout << '\n';
         print_knowledge(robot.overlay(), std::format("knowledge ({} edge(s)):\n",
                                                      robot.overlay().tracked_count()));
+
+        // Robot-local localization state (#16, ADR-018): the retained
+        // estimate and its age — BELIEF, observed read-only. Before the
+        // first successful fix no estimate exists and none is shown as a
+        // position; age exists only while an estimate does.
+        const auto& localization = robot.localization();
+        std::cout << "localization:\n";
+        if (!localization.estimate().has_value()) {
+            std::cout << "  estimate: unavailable\n";
+            return;
+        }
+        const auto& estimate = *localization.estimate();
+        const auto age = localization.age_at(runner_.now());
+        std::cout << std::format("  estimate: available\n"
+                                 "  estimated_at: {}\n"
+                                 "  age_ms: {}\n"
+                                 "  position: {:.6f}, {:.6f}\n"
+                                 "  heading: {:.6f}\n",
+                                 estimate.estimated_at.value,
+                                 age.has_value() ? age.value() : 0U,
+                                 estimate.position.latitude_deg,
+                                 estimate.position.longitude_deg,
+                                 estimate.heading_rad);
     }
 
     void print_station() {

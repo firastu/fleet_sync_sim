@@ -153,6 +153,96 @@ using json = nlohmann::json;
     return sensing;
 }
 
+// ONE parsing seam for GNSS model selection (#16, ADR-018): the same
+// grammar serves the initial model and every set_gnss_model event —
+//   "perfect" | "unavailable" | {"noisy": {"position_axis_sigma_m": d,
+//                                          "heading_sigma_rad": d}}
+// Noise fields are optional (default 0); semantic validation (finite,
+// non-negative) happens where the model is constructed — the runner's
+// single factory — so the grammar here stays purely syntactic.
+[[nodiscard]] GnssModelSpec parse_gnss_model_spec(const json& model, const char* where) {
+    GnssModelSpec spec;
+    if (model.is_string()) {
+        const std::string name = model.get<std::string>();
+        if (name == "perfect") {
+            spec.kind = GnssModelSpec::Kind::Perfect;
+            return spec;
+        }
+        if (name == "unavailable") {
+            spec.kind = GnssModelSpec::Kind::Unavailable;
+            return spec;
+        }
+        throw load_error(std::format(
+            "{}: unknown model '{}' (supported: perfect, unavailable, noisy)",
+            where, name));
+    }
+    if (!model.is_object() || model.size() != 1 || !model.contains("noisy")) {
+        throw load_error(std::format(
+            "{}: model must be 'perfect', 'unavailable' or {{\"noisy\": {{...}}}}",
+            where));
+    }
+    spec.kind = GnssModelSpec::Kind::Noisy;
+    const json& noisy = model.at("noisy");
+    if (!noisy.is_object()) {
+        throw load_error(std::format("{}: 'noisy' must be an object", where));
+    }
+    if (const auto sigma = noisy.find("position_axis_sigma_m"); sigma != noisy.end()) {
+        if (!sigma->is_number()) {
+            throw load_error(
+                std::format("{}: 'position_axis_sigma_m' must be a number", where));
+        }
+        spec.noise.position_axis_sigma_m = sigma->get<double>();
+    }
+    if (const auto sigma = noisy.find("heading_sigma_rad"); sigma != noisy.end()) {
+        if (!sigma->is_number()) {
+            throw load_error(
+                std::format("{}: 'heading_sigma_rad' must be a number", where));
+        }
+        spec.noise.heading_sigma_rad = sigma->get<double>();
+    }
+    return spec;
+}
+
+// Localization settings (#16, ADR-018): presence of the "localization"
+// object enables GNSS sampling. Opt-in — absent means no localization
+// behavior at all, so pre-#16 scenarios (including the founding
+// scenario) produce byte-identical traces.
+[[nodiscard]] fleet::scenario::LocalizationSettings parse_localization(
+    const json& root, const map::BaseMap& base) {
+    fleet::scenario::LocalizationSettings localization;
+    const auto entry = root.find("localization");
+    if (entry == root.end()) {
+        return localization;  // absent = localization off
+    }
+    if (!entry->is_object()) {
+        throw load_error("'localization' must be an object");
+    }
+    localization.enabled = true;
+
+    // Truth pose is DERIVED from map geometry (ADR-018) — a map without
+    // a geographic side cannot host localization; fail clearly instead
+    // of manufacturing coordinates.
+    if (base.geometry() == nullptr) {
+        throw load_error(
+            "localization: the map carries no geographic geometry (node "
+            "coordinates required to derive truth pose)");
+    }
+
+    const json& gnss = require(*entry, "gnss", "localization");
+    if (!gnss.is_object()) {
+        throw load_error("localization: 'gnss' must be an object");
+    }
+    if (const auto period = gnss.find("period_ms"); period != gnss.end()) {
+        if (!period->is_number_unsigned() || period->get<std::uint64_t>() == 0) {
+            throw load_error("localization: 'period_ms' must be a positive integer");
+        }
+        localization.gnss_period_ms = period->get<std::uint64_t>();
+    }
+    localization.initial_model = parse_gnss_model_spec(
+        require(gnss, "initial_model", "localization"), "localization: initial_model");
+    return localization;
+}
+
 [[nodiscard]] network::NetworkConfig parse_network(const json& root) {
     network::NetworkConfig config;
     const auto entry = root.find("network");
@@ -270,10 +360,24 @@ void parse_events(const map::BaseMap& base, Scenario& scenario,
                     .edge = edge_named(base.graph(),
                                        require_string(entry, "edge", "event")),
                     .status = status}});
+        } else if (action == "set_gnss_model") {
+            // Scenario policy (ADR-016/018): an outage is WHICH model is
+            // active, never a special case elsewhere. The action is only
+            // meaningful in a run that actually samples GNSS.
+            if (!scenario.localization.enabled) {
+                throw load_error(
+                    "event: 'set_gnss_model' requires a 'localization' block");
+            }
+            scenario.events.push_back(ScenarioEvent{
+                common::Tick{at},
+                SetGnssModelAction{
+                    .robot = robot_named(require_string(entry, "robot", "event")),
+                    .model = parse_gnss_model_spec(
+                        require(entry, "model", "event"), "event: model")}});
         } else {
             throw load_error(std::format(
                 "unknown action '{}' (supported: set_link_state, observe_edge, "
-                "resynchronize, set_world_edge_state)",
+                "resynchronize, set_world_edge_state, set_gnss_model)",
                 action));
         }
     }
@@ -295,6 +399,7 @@ void parse_events(const map::BaseMap& base, Scenario& scenario,
     scenario.network = parse_network(root);
     scenario.movement = parse_movement(root);
     scenario.sensing = parse_sensing(root);
+    scenario.localization = parse_localization(root, base);
     if (const auto duration = root.find("duration_ms"); duration != root.end()) {
         if (!duration->is_number_unsigned()) {
             throw load_error("'duration_ms' must be a non-negative integer (ms)");
@@ -305,6 +410,12 @@ void parse_events(const map::BaseMap& base, Scenario& scenario,
         // Termination guarantee (ADR-010): a robot whose goal becomes
         // unreachable parks and retries forever; the horizon bounds the run.
         throw load_error("movement: 'movement' requires 'duration_ms' to bound the run");
+    }
+    if (scenario.localization.enabled && !scenario.duration_ms.has_value()) {
+        // Same guarantee for the GNSS sampling chain (ADR-018): it
+        // self-reschedules forever; without a horizon the run never ends.
+        throw load_error(
+            "localization: 'localization' requires 'duration_ms' to bound the run");
     }
 
     if (const auto station = root.find("station"); station != root.end()) {

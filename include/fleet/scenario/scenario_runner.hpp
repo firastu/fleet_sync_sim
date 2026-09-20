@@ -2,11 +2,13 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <vector>
 
 #include "fleet/common/ids.hpp"
 #include "fleet/common/time.hpp"
+#include "fleet/localization/gnss_model.hpp"
 #include "fleet/map/base_map.hpp"
 #include "fleet/network/endpoint_id.hpp"
 #include "fleet/robot/robot.hpp"
@@ -19,7 +21,9 @@
 
 namespace fleet::simulation {
 class EventQueue;
+class DeterministicRng;
 }
+
 namespace fleet::network {
 class NetworkSimulator;
 }
@@ -48,6 +52,35 @@ namespace fleet::scenario {
 //   - initial "scenario"/"seed"/"route" trace events at tick 0;
 //   - each ScenarioEvent scheduled at its tick through the public APIs.
 //
+// Localization wiring (#16, ADR-018), when enabled:
+//   - the initial GNSS model per robot is constructed EAGERLY in the
+//     constructor (the single model factory — configuration errors fail
+//     construction, not the first sample);
+//   - ONE DeterministicRng PER ROBOT, derived from the resolved seed by
+//     fully specified arithmetic (derive_stream_seed; stable RobotId,
+//     fixed GNSS domain constant) — one robot's GNSS noise sequence is
+//     independent of every other robot's presence and sampling;
+//   - one sampling chain per robot: the first sample runs at tick 0,
+//     and every subsequent sample runs exactly period_ms later
+//     (strictly later — no zero-time self-scheduling);
+//   - a sample derives GroundTruthPose on the simulation side from
+//     movement state, map geometry, logical time, and runner-maintained
+//     physical orientation. Initial physical orientation is north;
+//     after a traversal completes, the final-segment bearing becomes the
+//     stationary physical orientation;
+//   - truth is measured through the ACTIVE GnssModel and only the
+//     resulting optional LocalizationEstimate crosses into the robot's
+//     LocalizationTracker (fix replaces, no-fix retains);
+//   - each sample emits a "gnss_sample" trace event and reschedules the
+//     same robot's next sample;
+//   - set_gnss_model replaces the active model and causes NO immediate
+//     sample or RNG consumption;
+//   - loaded scripted set_gnss_model events are scheduled before the
+//     initial GNSS chains. Therefore a scripted switch at tick T takes
+//     effect before a GNSS sample scheduled for the same T, including
+//     T = 0 (test-locked). This is a GNSS-specific same-tick guarantee,
+//     not a universal priority ordering among all event classes.
+//
 // Lifetime: borrows `base` and every added sink; both must outlive the
 // runner. Sinks are observation-only and never influence the run.
 //
@@ -61,7 +94,8 @@ public:
         bool had_station = false;
     };
 
-    ScenarioRunner(const map::BaseMap& base, Scenario scenario, std::uint64_t resolved_seed);
+    ScenarioRunner(const map::BaseMap& base, Scenario scenario,
+                   std::uint64_t resolved_seed);
 
     // Out-of-line: members are held by unique_ptr through forward declarations.
     ~ScenarioRunner();
@@ -118,11 +152,36 @@ private:
     void advance_robot(std::size_t index);
     void sense_for(std::size_t index, common::Tick now);
 
+    // --- localization wiring (#16, ADR-018) -------------------------------
+
+    // The single place a GnssModelSpec becomes a model: constructing the
+    // initial models and every set_gnss_model switch goes through here,
+    // so configuration validation (e.g. NoisyGnss's finite non-negative
+    // sigmas) fails in exactly one way.
+    [[nodiscard]] static std::unique_ptr<localization::GnssModel>
+    make_gnss_model(const GnssModelSpec& spec);
+
+    // One GNSS sample for one robot:
+    //
+    // simulation truth
+    //       ->
+    // active GnssModel
+    //       ->
+    // optional LocalizationEstimate
+    //       ->
+    // robot-local LocalizationTracker
+    //       ->
+    // "gnss_sample" trace
+    //       ->
+    // reschedule at now + period_ms
+    void sample_gnss(std::size_t index);
+
     [[nodiscard]] std::size_t index_of_robot(std::string_view name) const;
     [[nodiscard]] std::size_t index_of_robot(common::RobotId id) const;
     [[nodiscard]] std::string robot_name_of(common::RobotId id) const;
     [[nodiscard]] std::string target_name(std::size_t target_index) const;
-    [[nodiscard]] network::EndpointId target_endpoint(std::size_t target_index) const;
+    [[nodiscard]] network::EndpointId target_endpoint(
+        std::size_t target_index) const;
     [[nodiscard]] std::string edge_label(common::EdgeId edge) const;
     [[nodiscard]] std::string node_name(common::NodeId node) const;
 
@@ -139,6 +198,36 @@ private:
     std::unique_ptr<world::ObservationModel> sensor_;  // set when sensing enabled
     std::vector<std::unique_ptr<robot::Robot>> robots_;
     std::unique_ptr<station::ControlStation> station_;
+
+    // Localization (#16, ADR-018). When localization is enabled these
+    // containers have one entry per declared robot, in declaration order.
+
+    // ACTIVE GNSS model per robot. An outage is represented solely by
+    // UnavailableGnss occupying the corresponding slot.
+    std::vector<std::unique_ptr<localization::GnssModel>> gnss_models_;
+
+    // ONE deterministic GNSS RNG PER ROBOT. Seeds are derived as:
+    //
+    //   derive_stream_seed(
+    //       resolved_seed,
+    //       kGnssStreamDomain,
+    //       stable RobotId)
+    //
+    // Therefore GNSS sampling by unrelated robots cannot shift this
+    // robot's noise sequence. Perfect, Unavailable, and zero-noise
+    // models preserve their zero-consumption contracts.
+    std::vector<std::unique_ptr<simulation::DeterministicRng>> gnss_rngs_;
+
+    // SIMULATION-SIDE physical orientation truth per robot.
+    //
+    // Initial condition: north (0 rad).
+    // While moving: truth_pose derives heading from travel geometry.
+    // At arrival: the completed traversal's final-segment bearing is
+    // retained here and becomes the stationary physical orientation.
+    //
+    // Deliberately NOT part of Robot/RobotState: autonomy must not gain
+    // an oracle path to simulation-truth orientation.
+    std::vector<double> rest_heading_rad_;
 };
 
 }  // namespace fleet::scenario

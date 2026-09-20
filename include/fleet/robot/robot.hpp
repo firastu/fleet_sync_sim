@@ -6,6 +6,7 @@
 
 #include "fleet/common/ids.hpp"
 #include "fleet/common/time.hpp"
+#include "fleet/localization/estimate_tracker.hpp"
 #include "fleet/map/base_map.hpp"
 #include "fleet/map/dynamic_overlay.hpp"
 #include "fleet/map/map_delta.hpp"
@@ -136,6 +137,22 @@ public:
     // robot is not in transit.
     bool complete_transit();
 
+    // --- localization (#16, ADR-018) ---------------------------------------
+    //
+    // Robot-local localization state is the LAST VALID estimate plus its
+    // growing age — belief, never truth. The robot holds it; it does not
+    // know where the sample came from (no GroundTruthPose, no sensor
+    // model, no world access — the runner wiring feeds outcomes in).
+
+    // Feeds one GNSS sample outcome into robot-local state: a fix
+    // replaces the retained estimate; nullopt (no fix) retains it — an
+    // outage ages knowledge, it never erases it.
+    void apply_gnss_sample(const std::optional<localization::LocalizationEstimate>& sample);
+
+    // Read-only view for inspection (console, tests); age is derived at
+    // a caller-supplied logical tick.
+    [[nodiscard]] const localization::LocalizationTracker& localization() const noexcept;
+
 private:
     // Production state of one of this robot's per-edge event streams.
     struct StreamProgress {
@@ -164,6 +181,7 @@ private:
     map::MapReconciler reconciler_;
     planning::Route route_;
     RobotState state_;  // position/mission progress (ADR-010)
+    localization::LocalizationTracker localization_;  // last valid estimate (#16)
     // This robot's own event streams, keyed by edge (sparse; identity is
     // (source, edge, sequence), ADR-004).
     std::unordered_map<common::EdgeId, StreamProgress> streams_;

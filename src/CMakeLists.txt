@@ -60,11 +60,12 @@ add_library(fleet::network ALIAS fleet_network)
 target_link_libraries(fleet_network PUBLIC fleet::simulation fleet::map)
 fleet_target_warnings(fleet_network)
 
-# Autonomous participants: mission, local knowledge, routing autonomy.
+# Autonomous participants: mission, local knowledge, routing autonomy,
+# and robot-local localization state (the retained estimate, #16).
 add_library(fleet_robot STATIC
   robot/robot.cpp)
 add_library(fleet::robot ALIAS fleet_robot)
-target_link_libraries(fleet_robot PUBLIC fleet::planning fleet::map)
+target_link_libraries(fleet_robot PUBLIC fleet::planning fleet::map fleet::localization)
 fleet_target_warnings(fleet_robot)
 
 # Local control station: fleet-wide knowledge aggregation.
@@ -75,12 +76,14 @@ target_link_libraries(fleet_station PUBLIC fleet::map)
 fleet_target_warnings(fleet_station)
 
 # Simulation ground truth + the observation boundary between world truth
-# and robot belief (ADR-011).
+# and robot belief (ADR-011), plus simulation-side truth-pose derivation
+# from movement state + map geometry (#16, ADR-018).
 add_library(fleet_world STATIC
   world/world.cpp
-  world/observation_model.cpp)
+  world/observation_model.cpp
+  world/truth_pose.cpp)
 add_library(fleet::world ALIAS fleet_world)
-target_link_libraries(fleet_world PUBLIC fleet::robot fleet::map)
+target_link_libraries(fleet_world PUBLIC fleet::robot fleet::map fleet::localization)
 fleet_target_warnings(fleet_world)
 
 # GeoJSON output adapters (ADR-015, geospatial G2): pure outward-facing
@@ -91,11 +94,13 @@ add_library(fleet::geojson ALIAS fleet_geojson)
 target_link_libraries(fleet_geojson PUBLIC fleet::map fleet::scenario)
 fleet_target_warnings(fleet_geojson)
 
-# Localization (ADR-016, M3): ground-truth pose, sensor models and
-# localization estimates — the truth-vs-estimate boundary. Depends only
-# on map coordinates, logical time and the deterministic RNG.
+# Localization (ADR-016, M3): ground-truth pose, sensor models,
+# localization estimates and the truth-vs-estimate boundary, plus the
+# robot-local retained estimate + age (#16, ADR-018). Depends only on
+# map coordinates, logical time and the deterministic RNG.
 add_library(fleet_localization STATIC
-  localization/gnss_model.cpp)
+  localization/gnss_model.cpp
+  localization/estimate_tracker.cpp)
 add_library(fleet::localization ALIAS fleet_localization)
 target_link_libraries(fleet_localization PUBLIC fleet::map fleet::simulation)
 fleet_target_warnings(fleet_localization)
@@ -147,6 +152,6 @@ add_library(fleet::scenario ALIAS fleet_scenario)
 target_include_directories(fleet_scenario PUBLIC
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 target_link_libraries(fleet_scenario
-  PUBLIC fleet::robot fleet::network fleet::station fleet::world
+  PUBLIC fleet::robot fleet::network fleet::station fleet::world fleet::localization
   PRIVATE nlohmann_json::nlohmann_json)
 fleet_target_warnings(fleet_scenario)

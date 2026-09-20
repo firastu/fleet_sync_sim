@@ -95,45 +95,66 @@ unsupported pole-domain behavior rather than clamping.
 The model is an engineering degradation model, not a high-fidelity physical
 GNSS receiver model.
 
----
+### #16 — GNSS outage and stale localization — ADR-018
 
-## Current objective
-
-### #16 — GNSS outage and stale localization
-
-Make stale robot-local position knowledge observable before adding an
-estimator.
-
-Required behavior should establish the semantics of:
+Made localization degradation observable inside scenarios:
 
 ```text
 GNSS fix
    |
    v
-LocalizationEstimate @ t0
+retained robot-local estimate (LocalizationTracker on Robot)
 
-GNSS unavailable
+GNSS unavailable (active model returns nullopt)
    |
-   X
-estimate retained
-
-simulation time advances
+   X  no new fix
    |
-   v
-localization age = now - estimated_at
+estimate retained unchanged; age = now - estimated_at grows
 ```
+
+- scenario opt-in `"localization"` block (period, initial GNSS model) and
+  `set_gnss_model` action — one parser, one model factory; outages stay
+  "which model is active";
+- simulation-side truth pose (`world::truth_pose`) derived from movement
+  timing + MapGeometry arc length, direction-aware (reverse traversal),
+  explicit failure when geometry is missing — never manufactured;
+- sampling from tick 0 at a fixed period, strictly later rescheduling,
+  same-tick ordering locked by tests (scripted switch before the
+  same-tick sample; the tick-0 sample before tick-0 scripted events);
+- `gnss_sample` / `gnss_model` trace events (belief-side fields only,
+  including derived age) and console `robot <name>` localization state;
+- zero-consumption RNG contracts preserved; same scenario + seed is
+  byte-identical; founding trace unchanged (localization is opt-in).
+
+---
+
+## Current objective
+
+### #17 — Deterministic dead reckoning / drift
+
+Advance robot-local estimated state during a GNSS outage from the
+robot's OWN motion, with accumulating error — the frozen #16 estimate
+is the baseline it diverges from.
 
 The work should cover:
 
-* deterministic scenario-controlled GNSS model availability;
-* retaining the last valid estimate during an outage;
-* explicit localization age/staleness;
-* trace observability;
-* interactive-console observability where appropriate;
-* truth remaining inaccessible to robot autonomy;
-* deterministic behavior for the same scenario and seed.
+* a deterministic motion-propagation model behind the localization
+  boundary (no oracle truth: graph movement knowledge the robot itself
+  holds, or an explicit odometry seam);
+* error that accumulates deterministically (same scenario + seed =>
+  same drift);
+* the conceptual contrast locked by tests:
 
-Do not add a filtering algorithm merely to implement #16.
+```text
+#16 outage:  estimate frozen, estimated_at unchanged, age grows
+#17 drift:   estimated state advances, error grows vs truth
+```
+
+* trace/console observability of the divergence.
+
+Do not add an estimator (filter) to implement #17; dead reckoning is a
+measurement/propagation model, not a fusion algorithm. An estimator
+decision remains gated behind the #18 review.
 
 ---
 

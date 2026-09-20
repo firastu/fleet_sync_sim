@@ -159,7 +159,7 @@ std::optional<RobotTransit> Robot::begin_transit(common::Tick at,
     const std::uint64_t ticks =
         ticks_real >= 1.0 ? static_cast<std::uint64_t>(ticks_real) : std::uint64_t{1};
     RobotTransit transit{edge, route_.nodes.front(),
-                         route_.nodes[1], at + ticks};
+                         route_.nodes[1], at, at + ticks};
     state_.in_transit = transit;
     return transit;
 }
@@ -177,6 +177,15 @@ bool Robot::complete_transit() {
     }
     plan_current_route();
     return state_.mission_complete;
+}
+
+void Robot::apply_gnss_sample(
+    const std::optional<localization::LocalizationEstimate>& sample) {
+    localization_.apply_sample(sample);
+}
+
+const localization::LocalizationTracker& Robot::localization() const noexcept {
+    return localization_;
 }
 
 }  // namespace fleet::robot

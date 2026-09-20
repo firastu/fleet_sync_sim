@@ -8,7 +8,47 @@
 namespace {
 
 using fleet::simulation::DeterministicRng;
+using fleet::simulation::derive_stream_seed;
 
+TEST(DeterministicRngTest, DerivedStreamSeedsMatchGoldenValues) {
+    constexpr std::uint64_t kGnssDomain = 0x474E53535F535452ULL;
+
+    EXPECT_EQ(
+        derive_stream_seed(0, kGnssDomain, 0),
+        0x1E29A11F8CFA7A76ULL);
+
+    EXPECT_EQ(
+        derive_stream_seed(0, kGnssDomain, 1),
+        0xDAC5EE1EC4EB342AULL);
+
+    EXPECT_EQ(
+        derive_stream_seed(0, kGnssDomain, 2),
+        0xDBE197BF0A036B5BULL);
+
+    EXPECT_EQ(
+        derive_stream_seed(42, kGnssDomain, 0),
+        0x34234F5B4E042204ULL);
+
+    EXPECT_EQ(
+        derive_stream_seed(42, kGnssDomain, 1),
+        0x0BECD8470516B31BULL);
+}
+
+TEST(DeterministicRngTest, DerivedStreamsSeparateDomainIndexAndBaseSeed) {
+    constexpr std::uint64_t kDomain = 0x4E4753535F535452ULL;
+
+    EXPECT_NE(
+        derive_stream_seed(42, kDomain, 0),
+        derive_stream_seed(42, kDomain, 1));
+
+    EXPECT_NE(
+        derive_stream_seed(42, kDomain, 1),
+        derive_stream_seed(43, kDomain, 1));
+
+    EXPECT_NE(
+        derive_stream_seed(42, kDomain, 1),
+        derive_stream_seed(42, kDomain ^ 1ULL, 1));
+}
 TEST(DeterministicRngTest, SameSeedProducesIdenticalSequences) {
     DeterministicRng first{42};
     DeterministicRng second{42};

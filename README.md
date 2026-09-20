@@ -93,7 +93,8 @@ conditions reproducibly.
 * deterministic OSM PBF import;
 * deterministic GeoJSON debugging/export;
 * localization truth/estimate boundary;
-* perfect, unavailable and deterministic noisy GNSS models.
+* perfect, unavailable and deterministic noisy GNSS models;
+* GNSS outage scenarios with retained, aging localization estimates.
 
 For exact active implementation scope, see:
 

@@ -32,4 +32,21 @@ private:
     std::mt19937_64 engine_;
 };
 
+// Deterministic sub-stream seed derivation: maps (base seed, domain,
+// stream index) to a per-stream seed by FULLY SPECIFIED integer
+// arithmetic — one splitmix64 round over
+//   base ^ (domain + PHI * (index + 1)),  PHI = 0x9E3779B97F4A7C15.
+// No std::hash (unspecified), no unordered-container iteration, no
+// address dependence: the same triple yields the same seed on every
+// conforming platform (ADR-018's per-robot GNSS streams rely on it).
+// Domain is caller policy (a fixed constant per subsystem; NEVER change
+// a published constant — replay compatibility depends on it).
+//
+// The contract this buys: streams are independent of one another's
+// SCHEDULING — adding, removing or rescheduling one consumer never
+// shifts another consumer's random sequence.
+[[nodiscard]] std::uint64_t derive_stream_seed(std::uint64_t base_seed,
+                                               std::uint64_t domain,
+                                               std::uint64_t stream_index) noexcept;
+
 }  // namespace fleet::simulation

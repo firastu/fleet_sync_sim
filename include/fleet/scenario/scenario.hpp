@@ -8,6 +8,7 @@
 
 #include "fleet/common/ids.hpp"
 #include "fleet/common/time.hpp"
+#include "fleet/localization/gnss_model.hpp"
 #include "fleet/map/dynamic_overlay.hpp"
 #include "fleet/network/endpoint_id.hpp"
 #include "fleet/network/network_config.hpp"
@@ -68,9 +69,32 @@ struct SetWorldEdgeStateAction {
     map::EdgeStatus status = map::EdgeStatus::Open;
 };
 
+// Declarative selection of ONE existing GNSS model plus its
+// configuration (#16, ADR-018). Pure data: the semantics live in
+// fleet::localization; the scenario layer only SELECTS. Constructing a
+// model from a spec happens in exactly one place (the runner's factory).
+struct GnssModelSpec {
+    enum class Kind : std::uint8_t {
+        Perfect,
+        Unavailable,
+        Noisy,
+    };
+    Kind kind = Kind::Perfect;
+    localization::GnssNoiseConfig noise{};  // used when kind == Noisy
+};
+
+// Deterministic GNSS model switch (scenario policy, ADR-016/018): which
+// model is active for one robot from this event's tick on. Switching
+// never triggers an immediate sample and never consumes randomness — it
+// changes what the NEXT SCHEDULED sample measures with.
+struct SetGnssModelAction {
+    common::RobotId robot{};
+    GnssModelSpec model{};
+};
+
 using ScenarioAction =
     std::variant<SetLinkAction, ObserveEdgeAction, ResynchronizeAction,
-                 SetWorldEdgeStateAction>;
+                 SetWorldEdgeStateAction, SetGnssModelAction>;
 
 struct ScenarioEvent {
     common::Tick at{};
@@ -96,6 +120,20 @@ struct SensingSettings {
     bool enabled = false;
 };
 
+// Localization is scenario opt-in (#16, ADR-018): enabling it starts one
+// deterministic GNSS sampling chain per robot. The FIRST sample runs at
+// tick 0; subsequent samples run exactly period_ms later (strictly later
+// — no zero-time self-scheduling, ADR-005/010). Model selection is
+// scenario policy; measurement behavior belongs to fleet::localization.
+// Requires a duration_ms horizon (the sampling chain never self-terminates)
+// and a map with geographic geometry (truth pose is derived, never
+// manufactured).
+struct LocalizationSettings {
+    bool enabled = false;
+    std::uint64_t gnss_period_ms = 1000;
+    GnssModelSpec initial_model{};
+};
+
 // Declarative description of one deterministic simulation run. Pure data:
 // no wiring, no scheduling, no domain behavior. Execution order of equal-tick
 // events is file order (guaranteed by the loader's stable sort and ADR-005's
@@ -106,6 +144,7 @@ struct Scenario {
     network::NetworkConfig network{};
     MovementSettings movement{};             // opt-in (ADR-010)
     SensingSettings sensing{};               // opt-in (ADR-011)
+    LocalizationSettings localization{};     // opt-in (#16, ADR-018)
     std::optional<std::uint64_t> duration_ms;  // run horizon; required by movement
     bool has_station = false;
     network::EndpointId station_endpoint{};

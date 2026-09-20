@@ -1,0 +1,25 @@
+{
+  "name": "gnss_outage",
+  "seed": 17,
+  "movement": {
+    "ms_per_cost_unit": 1000
+  },
+  "localization": {
+    "gnss": {
+      "period_ms": 1000,
+      "initial_model": "perfect"
+    }
+  },
+  "duration_ms": 6000,
+  "robots": [
+    {
+      "name": "robot_a",
+      "id": 1,
+      "endpoint": 1,
+      "mission": { "start": "A", "goal": "D" }
+    }
+  ],
+  "events": [
+    { "at_ms": 2500, "action": "set_gnss_model", "robot": "robot_a", "model": "unavailable" }
+  ]
+}

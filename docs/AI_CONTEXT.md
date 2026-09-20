@@ -341,7 +341,26 @@ Apps are adapters around these modules rather than owners of domain logic.
 
 ---
 
+## ADR lookup
 
+ADRs under `docs/design_decisions/` are normative accepted contracts.
+
+Do not read every ADR by default.
+
+Discover the available decisions from the repository:
+
+```sh
+find docs/design_decisions -maxdepth 1 -name 'ADR-*.md' -printf '%f\n' | sort
+```
+
+When looking for a decision by topic, search filenames/content first:
+```sh
+rg -n "localization|GNSS|movement|network|map|scenario" \
+    docs/design_decisions/ADR-*.md
+```
+Then read only the ADRs relevant to the current subsystem.
+
+docs/design_decisions/README.md explains how ADRs should be consumed.
 
 ## Standard validation
 

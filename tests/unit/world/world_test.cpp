@@ -104,7 +104,8 @@ TEST_F(PerfectLocalEdgeSensorTest, RangeIsTheOccupiedNode) {
     const RobotState in_transit{
         .position = grid_.node("A"),
         .in_transit = fleet::robot::RobotTransit{edge("A", "B"), grid_.node("A"),
-                                                 grid_.node("B"), fleet::common::Tick{1000}}};
+                                                 grid_.node("B"), fleet::common::Tick{0},
+                                                 fleet::common::Tick{1000}}};
     const std::vector<EdgeObservation> observations =
         sensor_.sense(world, in_transit);
     ASSERT_EQ(observations.size(), 2U);
