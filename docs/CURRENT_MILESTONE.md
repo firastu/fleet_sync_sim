@@ -118,9 +118,10 @@ estimate retained unchanged; age = now - estimated_at grows
 - simulation-side truth pose (`world::truth_pose`) derived from movement
   timing + MapGeometry arc length, direction-aware (reverse traversal),
   explicit failure when geometry is missing — never manufactured;
-- sampling from tick 0 at a fixed period, strictly later rescheduling,
-  same-tick ordering locked by tests (scripted switch before the
-  same-tick sample; the tick-0 sample before tick-0 scripted events);
+- sampling from tick 0 at a fixed period, strictly later rescheduling;
+  same-tick ordering uniform at every tick (movement transitions ->
+  scripted effects -> GNSS sample), so a scripted switch at any tick T
+  (including 0) applies before the T sample — test-locked;
 - `gnss_sample` / `gnss_model` trace events (belief-side fields only,
   including derived age) and console `robot <name>` localization state;
 - zero-consumption RNG contracts preserved; same scenario + seed is

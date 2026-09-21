@@ -176,6 +176,11 @@ private:
     // reschedule at now + period_ms
     void sample_gnss(std::size_t index);
 
+    // Starts the per-robot sampling chains (tick 0). Called from begin()
+    // AFTER schedule_events(): enqueue order at every tick is movement
+    // transitions -> scripted effects -> GNSS sample (ADR-018).
+    void start_localization_chains();
+
     [[nodiscard]] std::size_t index_of_robot(std::string_view name) const;
     [[nodiscard]] std::size_t index_of_robot(common::RobotId id) const;
     [[nodiscard]] std::string robot_name_of(common::RobotId id) const;

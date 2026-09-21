@@ -122,12 +122,15 @@ struct SensingSettings {
 
 // Localization is scenario opt-in (#16, ADR-018): enabling it starts one
 // deterministic GNSS sampling chain per robot. The FIRST sample runs at
-// tick 0; subsequent samples run exactly period_ms later (strictly later
-// — no zero-time self-scheduling, ADR-005/010). Model selection is
-// scenario policy; measurement behavior belongs to fleet::localization.
-// Requires a duration_ms horizon (the sampling chain never self-terminates)
-// and a map with geographic geometry (truth pose is derived, never
-// manufactured).
+// tick 0 — after any tick-0 movement transitions and scripted effects —
+// and subsequent samples run exactly period_ms later (strictly later —
+// no zero-time self-scheduling, ADR-005/010). At every tick the order is
+// movement transitions -> scripted effects -> GNSS sample, so a
+// set_gnss_model switch scripted at any tick T (including 0) applies
+// before the T sample. Model selection is scenario policy; measurement
+// behavior belongs to fleet::localization. Requires a duration_ms
+// horizon (the sampling chain never self-terminates) and a map with
+// geographic geometry (truth pose is derived, never manufactured).
 struct LocalizationSettings {
     bool enabled = false;
     std::uint64_t gnss_period_ms = 1000;

@@ -540,6 +540,17 @@ void ScenarioRunner::sample_gnss(std::size_t index) {
                      [this, index] { sample_gnss(index); });
 }
 
+void ScenarioRunner::start_localization_chains() {
+    // Enqueued AFTER wire_world()'s movement chains and AFTER
+    // schedule_events()'s scripted events — the enqueue order that makes
+    // every tick uniform: movement transitions -> scripted effects ->
+    // GNSS sample. A switch scripted at any tick T (including 0) applies
+    // before the T sample (ADR-018; test-locked).
+    for (std::size_t index = 0; index < robots_.size(); ++index) {
+        queue_->schedule(common::Tick{0}, [this, index] { sample_gnss(index); });
+    }
+}
+
 void ScenarioRunner::begin() {
     if (begun_) {
         return;
@@ -548,11 +559,7 @@ void ScenarioRunner::begin() {
     wire_world();
     schedule_events();
     if (scenario_.localization.enabled) {
-        for (std::size_t i = 0; i < robots_.size(); ++i) {
-            queue_->schedule(
-                common::Tick{0},
-                [this, i] { sample_gnss(i); });
-        }
+        start_localization_chains();
     }
 }
 
