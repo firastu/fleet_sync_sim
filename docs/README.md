@@ -202,6 +202,14 @@ Examples include GIS workstations, map inspection workflows, future external sim
 
 Tooling documents do not automatically create runtime dependencies or implementation scope.
 
+External simulator workflow:
+
+* [Isaac Sim integration guide](isaac/README.md): workstation setup, proposed
+    adapter decisions, junior-oriented implementation packages and acceptance
+    tests. This is future-stage guidance, not an accepted runtime architecture
+    or a promotion beyond the current milestone. It also records why Autoproj
+    is not needed for the initial integration.
+
 ---
 
 ## Duplication rule
