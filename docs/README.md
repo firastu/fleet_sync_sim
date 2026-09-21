@@ -204,11 +204,13 @@ Tooling documents do not automatically create runtime dependencies or implementa
 
 External simulator workflow:
 
-* [Isaac Sim integration guide](isaac/README.md): workstation setup, proposed
-    adapter decisions, junior-oriented implementation packages and acceptance
-    tests. This is future-stage guidance, not an accepted runtime architecture
-    or a promotion beyond the current milestone. It also records why Autoproj
-    is not needed for the initial integration.
+* [Isaac Sim integration guide](isaac/README.md): workstation setup, adapter
+    decisions, junior-oriented implementation packages and acceptance
+    tests. Stage 1 (read-only replay) is implemented scope under
+    [ADR-020](design_decisions/ADR-020-isaac-stage1-readonly-replay-export.md);
+    later stages remain guidance for future promotions, not accepted runtime
+    architecture. The guide also records why Autoproj is not needed for the
+    initial integration.
 
 ---
 

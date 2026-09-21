@@ -186,6 +186,39 @@ appropriate for the failure modes that now exist.
 
 ---
 
+## Owner-authorized bounded exception: Isaac Sim stage 1 (read-only replay)
+
+On 2026-09-21 the owner explicitly promoted the first Isaac Sim integration
+stage from `docs/isaac/` into implementation scope, ahead of the post-#18
+milestone review, as a bounded exception (ADR-020).
+
+Authorized:
+
+* the stage 1 read-only replay export: `apps/fleet_isaac_export/` behind the
+  opt-in `FLEET_BUILD_ISAAC_TOOLS` CMake option (default OFF);
+* the `tools/isaac/` conversion and viewer layer plus its CPU-only tests;
+* one observation-only `ScenarioRunner::truth_pose_for(name)` accessor
+  (simulation-side truth for outward replay; no autonomy path).
+
+Still not authorized:
+
+* stage 2 sensor harness, stage 3 physical motion backend, ROS 2;
+* external pose/odometry injection into `Robot` or `ScenarioRunner`;
+* any Isaac/ROS/simulator type or dependency inside domain modules.
+
+Invariants:
+
+* native gates and founding traces are unchanged with the option ON or OFF;
+* the export is observation-only: no RNG draws, no state mutation, byte-stable
+  normal trace;
+* no committed test requires a GPU; GPU-only smoke checks are reported as unrun
+  where no supported GPU exists.
+
+M3 #17/#18 localization work remains the primary sequence; this exception
+neither advances nor weakens it.
+
+---
+
 ## Allowed in M3
 
 Work may introduce or change:
@@ -215,7 +248,7 @@ Do not introduce merely because they appear in the project vision:
 * cooperative localization;
 * distributed geometric map merging;
 * ROS 2;
-* NVIDIA Isaac Sim integration;
+* NVIDIA Isaac Sim integration beyond the bounded stage 1 exception above;
 * Gazebo integration;
 * physical-robot drivers;
 * threads or a new asynchronous runtime;

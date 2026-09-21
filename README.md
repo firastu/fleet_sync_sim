@@ -16,9 +16,10 @@ The project studies robots that can:
 >
 > The deterministic distributed-autonomy platform, movement/sensing layer,
 > OSM/GeoJSON integration, and interactive scenario tooling are established.
-> M3 currently studies positioning degradation: the localization boundary and
-> deterministic noisy GNSS, outages and stale estimates are implemented.
-> Opt-in deterministic dead reckoning is implemented and awaiting #17 review.
+> M3 currently studies positioning degradation: the localization boundary,
+> deterministic noisy GNSS, outages and stale estimates, and opt-in dead
+> reckoning are implemented. A bounded Isaac Sim read-only replay bridge
+> (ADR-020) is implemented as an opt-in adapter alongside M3.
 
 FleetSyncSim began with **distributed robot-local map knowledge under unreliable
 communication**. It now provides a broader deterministic autonomy test platform
@@ -95,7 +96,9 @@ conditions reproducibly.
 * localization truth/estimate boundary;
 * perfect, unavailable and deterministic noisy GNSS models;
 * GNSS outage scenarios with retained, aging localization estimates;
-* opt-in robot-local dead reckoning with deterministic drift and error diagnostics.
+* opt-in robot-local dead reckoning with deterministic drift and error diagnostics;
+* opt-in Isaac Sim read-only replay bridge: pose export + conversion + viewer
+  (ADR-020).
 
 For exact active implementation scope, see:
 
@@ -266,6 +269,29 @@ topology rather than silently altering it.
 
 GeoJSON output is outward-facing debug/inspection data and does not participate
 in planning state.
+
+---
+
+## Isaac Sim read-only replay bridge (opt-in)
+
+Stage 1 of the Isaac integration (ADR-020) exports a completed deterministic
+run as pose snapshots that Isaac Sim can display — CPU-only on this side, no
+simulator dependency:
+
+```sh
+cmake --preset debug -DFLEET_BUILD_ISAAC_TOOLS=ON
+cmake --build --preset debug -j 2
+./build/debug/apps/fleet_isaac_export/fleet_isaac_export \
+    --scenario scenarios/isaac_replay.json --out build/isaac-export --seed 17
+
+python3 tools/isaac/replay.py --validate --export-dir build/isaac-export
+```
+
+The export is observation-only (the normal trace stays byte-identical) and
+reproducible. The Isaac-side viewer and its GPU requirements are documented in
+[`tools/isaac/README.md`](tools/isaac/README.md) and
+[`docs/isaac/README.md`](docs/isaac/README.md); the rendering path still needs
+its first GPU workstation validation.
 
 ---
 

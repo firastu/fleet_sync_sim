@@ -1,7 +1,9 @@
 # Isaac Sim Integration Guide
 
-Status: proposed future integration workflow, not an accepted architecture
-contract or an authorization to implement a new milestone.
+Status: stage 1 (read-only replay) was explicitly promoted by the owner on
+2026-09-21 and implemented under [ADR-020](../design_decisions/ADR-020-isaac-stage1-readonly-replay-export.md).
+Stages 2 and 3 remain proposals — see the bounded exception recorded in the
+[current milestone](../CURRENT_MILESTONE.md).
 
 Audience: a developer comfortable with basic C++, Python, Git and a Linux
 terminal, but new to Isaac Sim and this repository.
@@ -12,7 +14,7 @@ terminal, but new to Isaac Sim and this repository.
 2. Follow [workstation setup](SETUP.md), including the no-GPU fallback.
 3. Review the [proposed architecture](ARCHITECTURE.md) before designing code.
 4. Implement the approved stage using the ticket-sized
-	[implementation checklist](IMPLEMENTATION.md), with tests and stop conditions.
+   [implementation checklist](IMPLEMENTATION.md), with tests and stop conditions.
 
 ## Scope and starting point
 
@@ -21,15 +23,23 @@ does not require Isaac Lab, reinforcement learning, ROS 2 or a cloud service.
 Isaac Sim is a development backend, not a runtime requirement for the robot
 autonomy core.
 
-The [current milestone](../CURRENT_MILESTONE.md) still gates external simulator
-implementation. The #17 dead-reckoning work is awaiting review; #18 and the
-subsequent localization review have not been bypassed. Read the applicable
-[engineering rules](../../AGENTS.md) before changing code.
+Only stage 1 is implemented scope. Stages 2 (sensor harness) and 3 (physical
+motion backend) stay gated: the owner must promote each bounded stage into
+the milestone and accept its durable contracts in the next available ADR.
+Read the applicable [engineering rules](../../AGENTS.md) before changing code.
 
-Preparing a workstation or reviewing these proposals does not promote Isaac
-runtime work into scope. Before implementation, the owner must explicitly
-promote a bounded integration stage into the milestone and accept its durable
-contracts in the next available ADR. Do not reserve an ADR number now.
+Stage 1 delivery:
+
+```text
+apps/fleet_isaac_export/   opt-in exporter (FLEET_BUILD_ISAAC_TOOLS, default OFF)
+scenarios/isaac_replay.json  straight/turn/stop fixture run with GNSS belief
+tools/isaac/               pure conversion + export validation + Isaac viewer
+tests/unit/isaac/          native adapter tests
+```
+
+The Isaac rendering path of `tools/isaac/replay.py` has NOT been executed on
+a supported GPU workstation yet; it must pass the smoke test in
+[SETUP.md](SETUP.md) before the bridge is claimed working end to end.
 
 ## Fastest useful sequence
 
@@ -47,7 +57,7 @@ turning the scenario runner into a vehicle controller.
 
 | Existing surface | Can be reused | Missing or unsafe to assume |
 | --- | --- | --- |
-| [ScenarioRunner](../../include/fleet/scenario/scenario_runner.hpp) | Bounded reference runs, stepping, trace sinks | No public external-pose/odometry injection; `robot()` returns a const reference |
+| [ScenarioRunner](../../include/fleet/scenario/scenario_runner.hpp) | Bounded reference runs, stepping, trace sinks, read-only `truth_pose_for` (ADR-020) | No pose/odometry injection API; `robot()` returns a const reference |
 | [Robot](../../include/fleet/robot/robot.hpp) | Mission, routes, map knowledge, GNSS sample retention | Movement is timed graph traversal, not wheel control or physical arrival feedback |
 | [LocalizationTracker](../../include/fleet/localization/estimate_tracker.hpp) | Apply fixes and propagate relative odometry in a standalone C++ harness | Not a Python binding; Robot exposes its tracker read-only |
 | [Pose types](../../include/fleet/localization/pose.hpp) | Explicit truth versus estimate, timestamp and heading vocabulary | No 3D pose, altitude, covariance, IMU fusion or global map projection |
