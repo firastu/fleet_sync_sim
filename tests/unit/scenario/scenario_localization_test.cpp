@@ -18,6 +18,7 @@
 #include "fleet/localization/gnss_model.hpp"
 #include "fleet/map/geometry.hpp"
 #include "fleet/robot/robot.hpp"
+#include "fleet/world/truth_pose.hpp"
 #include "test_maps.hpp"
 
 namespace {
@@ -683,6 +684,142 @@ TEST_F(LocalizationLoaderTest, RejectsSetGnssModelWithoutLocalizationBlock) {
       ]
     })json";
     EXPECT_THROW(load(grid_, json), std::invalid_argument);
+}
+
+TEST_F(ScenarioLocalizationTest, DeadReckoningAdvancesAndErrorGrowsDuringOutage) {
+    auto settings = localization_settings(250, perfect());
+    settings.dead_reckoning = fleet::localization::DeadReckoningConfig{0.1, 0.0};
+    auto scenario = make_scenario(true, settings, {switch_event(250, unavailable())}, 3000);
+    VectorTraceSink sink;
+    ScenarioRunner runner{grid_.base, scenario, 42};
+    runner.add_sink(sink);
+    double previous_error = 0.0;
+    for (std::uint64_t tick = 250; tick <= 3000; tick += 250) {
+        runner.run_until(Tick{tick});
+        const auto& robot = runner.robot("robot_a");
+        const auto& estimate = *robot.localization().estimate();
+        const auto truth = fleet::world::truth_pose(grid_.base, robot.state(), 0.0, Tick{tick});
+        const double error = estimate.position.longitude_deg - truth.position.longitude_deg;
+        EXPECT_GT(error, previous_error);
+        previous_error = error;
+        EXPECT_EQ(estimate.estimated_at, Tick{tick});
+        EXPECT_EQ(robot.localization().last_fix_at(), Tick{0});
+        EXPECT_TRUE(robot.localization().dead_reckoned());
+    }
+    const auto samples = sink.all_of_type("gnss_sample");
+    ASSERT_EQ(samples.size(), 13U);
+    EXPECT_EQ(field(*samples.back(), "estimate_source"), "dead_reckoning");
+    EXPECT_EQ(field(*samples.back(), "last_fix_age"), "3000");
+    EXPECT_EQ(field(*samples.back(), "age"), "0");
+    const auto errors = sink.all_of_type("localization_error");
+    ASSERT_EQ(errors.size(), samples.size());
+    EXPECT_EQ(errors.back()->source, "world");
+    EXPECT_TRUE(has_field(*errors.back(), "position_error_m"));
+    EXPECT_FALSE(has_field(*samples.back(), "position_error_m"));
+    EXPECT_GT(runner.localization_position_error_m("robot_a").value(), 30.0);
+    EXPECT_EQ(jsonl_trace(grid_.base, scenario, 42), jsonl_trace(grid_.base, scenario, 42));
+}
+
+TEST_F(ScenarioLocalizationTest, DeadReckoningWithoutInitialFixDoesNotInventPose) {
+    auto settings = localization_settings(250, unavailable());
+    settings.dead_reckoning = fleet::localization::DeadReckoningConfig{0.1, 0.001};
+    ScenarioRunner runner{grid_.base, make_scenario(true, settings), 42};
+    runner.run_to_completion();
+    EXPECT_FALSE(runner.robot("robot_a").localization().estimate());
+    EXPECT_FALSE(runner.robot("robot_a").localization().last_fix_at());
+}
+
+TEST_F(ScenarioLocalizationTest, DeadReckoningSteppingAndObservationDoNotChangeTrace) {
+    auto settings = localization_settings(250, perfect());
+    settings.dead_reckoning = fleet::localization::DeadReckoningConfig{0.05, 0.001};
+    const auto scenario = make_scenario(true, settings, {switch_event(500, unavailable())});
+    std::ostringstream out;
+    JsonlTraceSink sink{out};
+    ScenarioRunner runner{grid_.base, scenario, 42};
+    runner.add_sink(sink);
+    for (std::uint64_t tick = 0; tick <= 6000; tick += 37) {
+        runner.run_until(Tick{tick});
+        (void)runner.robot("robot_a").localization().age_at(Tick{tick});
+        (void)runner.localization_position_error_m("robot_a");
+    }
+    runner.run_to_completion();
+    EXPECT_EQ(out.str(), jsonl_trace(grid_.base, scenario, 42));
+}
+
+TEST_F(ScenarioLocalizationTest, RunnerRejectsUnboundedOrInvalidDeadReckoning) {
+    auto scenario = make_scenario(false, localization_settings(250, perfect()));
+    scenario.duration_ms.reset();
+    EXPECT_THROW(ScenarioRunner(grid_.base, scenario, 42), std::invalid_argument);
+    scenario.duration_ms = 1000;
+    scenario.localization.dead_reckoning = fleet::localization::DeadReckoningConfig{-1.0, 0.0};
+    EXPECT_THROW(ScenarioRunner(grid_.base, scenario, 42), std::invalid_argument);
+    scenario.localization.dead_reckoning = fleet::localization::DeadReckoningConfig{};
+    scenario.localization.enabled = false;
+    EXPECT_THROW(ScenarioRunner(grid_.base, scenario, 42), std::invalid_argument);
+}
+
+TEST_F(LocalizationLoaderTest, LoadsDeadReckoningFixture) {
+    const auto scenario = ScenarioLoader::load(grid_.base, "scenarios/dead_reckoning.json");
+    ASSERT_TRUE(scenario.localization.dead_reckoning);
+    EXPECT_DOUBLE_EQ(scenario.localization.dead_reckoning->distance_scale_error, 0.05);
+    EXPECT_DOUBLE_EQ(scenario.localization.dead_reckoning->heading_drift_rad_per_m, 0.0005);
+    ScenarioRunner runner{grid_.base, scenario, 17};
+    runner.run_to_completion();
+    EXPECT_TRUE(runner.robot("robot_a").localization().dead_reckoned());
+}
+
+TEST_F(LocalizationLoaderTest, RejectsInvalidDeadReckoningGrammar) {
+    for (const auto& config : {"false", "null", "[]", "{\"distance_scale_error\":-1}",
+                               "{\"heading_drift_rad_per_m\":\"bad\"}", "{\"typo\":1}"}) {
+        const std::string json = std::string{R"json({
+          "name":"bad", "duration_ms":1000,
+          "localization":{"gnss":{"initial_model":"perfect"}, "dead_reckoning":)json"} +
+          config + R"json(},
+          "robots":[{"name":"robot_a","id":1,"endpoint":1,
+                     "mission":{"start":"A","goal":"D"}}], "events":[]})json";
+        EXPECT_THROW(load(grid_, json), std::invalid_argument) << config;
+    }
+}
+
+TEST_F(ScenarioLocalizationTest, DeadReckoningDoesNotConsumeGnssRandomnessOrCoupleRobots) {
+    auto settings = localization_settings(250, noisy(2.0, 0.02));
+    const auto baseline = make_scenario(true, settings);
+    settings.dead_reckoning = fleet::localization::DeadReckoningConfig{0.05, 0.001};
+    auto propagated = make_scenario(true, settings);
+    auto other = propagated.robots.front();
+    other.name = "robot_b";
+    other.id = RobotId{2};
+    other.endpoint = fleet::network::EndpointId{2};
+    propagated.robots.push_back(other);
+    VectorTraceSink baseline_sink;
+    VectorTraceSink propagated_sink;
+    ScenarioRunner baseline_runner{grid_.base, baseline, 42};
+    ScenarioRunner propagated_runner{grid_.base, propagated, 42};
+    baseline_runner.add_sink(baseline_sink);
+    propagated_runner.add_sink(propagated_sink);
+    baseline_runner.run_to_completion();
+    propagated_runner.run_to_completion();
+    const auto expected = baseline_sink.where("robot_a", "gnss_sample");
+    const auto actual = propagated_sink.where("robot_a", "gnss_sample");
+    ASSERT_EQ(expected.size(), actual.size());
+    for (std::size_t index = 0; index < expected.size(); ++index) {
+        EXPECT_EQ(field(*expected[index], "position"), field(*actual[index], "position"));
+        EXPECT_EQ(field(*expected[index], "heading"), field(*actual[index], "heading"));
+    }
+}
+
+TEST_F(ScenarioLocalizationTest, ZeroDurationStillExecutesTickZeroSampleExactlyOnce) {
+    auto settings = localization_settings(250, perfect());
+    settings.dead_reckoning = fleet::localization::DeadReckoningConfig{};
+    const auto scenario = make_scenario(false, settings, {}, 0);
+    VectorTraceSink sink;
+    ScenarioRunner runner{grid_.base, scenario, 42};
+    runner.add_sink(sink);
+    runner.run_to_completion();
+    ASSERT_TRUE(runner.robot("robot_a").localization().estimate());
+    EXPECT_EQ(runner.robot("robot_a").localization().estimate()->estimated_at, Tick{0});
+    runner.run_to_completion();
+    EXPECT_EQ(sink.count_type("gnss_sample"), 1U);
 }
 
 }  // namespace

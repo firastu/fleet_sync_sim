@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <unordered_map>
+#include <vector>
 
 #include "fleet/common/ids.hpp"
 #include "fleet/common/time.hpp"
@@ -149,6 +150,9 @@ public:
     // outage ages knowledge, it never erases it.
     void apply_gnss_sample(const std::optional<localization::LocalizationEstimate>& sample);
 
+    void configure_dead_reckoning(localization::DeadReckoningConfig config);
+    void advance_localization(common::Tick now);
+
     // Read-only view for inspection (console, tests); age is derived at
     // a caller-supplied logical tick.
     [[nodiscard]] const localization::LocalizationTracker& localization() const noexcept;
@@ -172,6 +176,12 @@ private:
 
     void plan_current_route();
 
+    struct MotionSegment {
+        double length_m;
+        double heading_rad;
+    };
+    void prepare_odometry(const RobotTransit& transit);
+
     common::RobotId id_;
     Mission mission_;
     const map::BaseMap& base_;
@@ -182,6 +192,11 @@ private:
     planning::Route route_;
     RobotState state_;  // position/mission progress (ADR-010)
     localization::LocalizationTracker localization_;  // last valid estimate (#16)
+    std::optional<localization::DeadReckoningConfig> dead_reckoning_;
+    common::Tick odometry_at_{};
+    double motion_heading_rad_ = 0.0;
+    std::vector<MotionSegment> motion_segments_;
+    double motion_length_m_ = 0.0;
     // This robot's own event streams, keyed by edge (sparse; identity is
     // (source, edge, sequence), ADR-004).
     std::unordered_map<common::EdgeId, StreamProgress> streams_;

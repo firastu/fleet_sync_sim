@@ -160,7 +160,12 @@ std::optional<RobotTransit> Robot::begin_transit(common::Tick at,
         ticks_real >= 1.0 ? static_cast<std::uint64_t>(ticks_real) : std::uint64_t{1};
     RobotTransit transit{edge, route_.nodes.front(),
                          route_.nodes[1], at, at + ticks};
+    advance_localization(at);
+    if (dead_reckoning_) {
+        prepare_odometry(transit);
+    }
     state_.in_transit = transit;
+    advance_localization(at);
     return transit;
 }
 
@@ -170,6 +175,7 @@ bool Robot::complete_transit() {
     }
     // Physically committed: the traversal finishes regardless of what the
     // robot learned about the edge while on it (ADR-010).
+    advance_localization(state_.in_transit->arrival);
     state_.position = state_.in_transit->to;
     state_.in_transit.reset();
     if (state_.position == mission_.goal) {
@@ -181,6 +187,13 @@ bool Robot::complete_transit() {
 
 void Robot::apply_gnss_sample(
     const std::optional<localization::LocalizationEstimate>& sample) {
+    if (sample) {
+        auto next = localization_;
+        next.apply_sample(sample);
+        advance_localization(sample->estimated_at);
+        localization_ = next;
+        return;
+    }
     localization_.apply_sample(sample);
 }
 

@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 
@@ -154,6 +155,69 @@ TEST_F(RobotMovementTest, CommittedTransitSurvivesBlockedKnowledge) {
     const std::optional<RobotTransit> next = robot.begin_transit(Tick{1000}, 1000);
     ASSERT_TRUE(next.has_value());
     EXPECT_EQ(next->from, grid_.node("B"));
+}
+
+TEST(RobotDeadReckoningTest, OwnMotionAdvancesBeliefWithoutSnappingToMapPosition) {
+    const auto grid = fleet::testsupport::make_grid_map_with_geometry();
+    Robot robot{RobotId{1}, Mission{grid.node("A"), grid.node("C")}, grid.base, {}};
+    robot.configure_dead_reckoning({0.1, 0.0});
+    robot.apply_gnss_sample(fleet::localization::LocalizationEstimate{
+        {52.370, 9.730}, 0.0, Tick{0}});
+    ASSERT_TRUE(robot.begin_transit(Tick{0}, 1000));
+    robot.advance_localization(Tick{500});
+    const auto halfway = robot.localization().estimate()->position;
+    EXPECT_GT(halfway.longitude_deg, 9.731);
+    EXPECT_FALSE(robot.complete_transit());
+    EXPECT_GT(robot.localization().estimate()->position.longitude_deg, 9.732);
+    ASSERT_TRUE(robot.begin_transit(Tick{1000}, 1000));
+    EXPECT_TRUE(robot.complete_transit());
+    EXPECT_GT(robot.localization().estimate()->position.longitude_deg, 9.734);
+    const auto arrived = robot.localization().estimate()->position;
+    robot.advance_localization(Tick{3000});
+    EXPECT_EQ(robot.localization().estimate()->position, arrived);
+    EXPECT_EQ(robot.localization().estimate()->estimated_at, Tick{3000});
+}
+
+TEST(RobotDeadReckoningTest, ReverseMotionAndMissingFixRemainExplicit) {
+    const auto grid = fleet::testsupport::make_grid_map_with_geometry();
+    Robot robot{RobotId{1}, Mission{grid.node("B"), grid.node("A")}, grid.base, {}};
+    robot.configure_dead_reckoning({});
+    ASSERT_TRUE(robot.begin_transit(Tick{0}, 1000));
+    robot.advance_localization(Tick{500});
+    EXPECT_FALSE(robot.localization().estimate());
+    robot.apply_gnss_sample(fleet::localization::LocalizationEstimate{
+        {52.370, 9.731}, 4.71238898038469, Tick{500}});
+    EXPECT_TRUE(robot.complete_transit());
+    EXPECT_NEAR(robot.localization().estimate()->position.longitude_deg, 9.730, 1e-7);
+    EXPECT_THROW(robot.advance_localization(Tick{999}), std::invalid_argument);
+}
+
+TEST(RobotDeadReckoningTest, MidEdgeFixDoesNotReplayEarlierMotion) {
+    const auto grid = fleet::testsupport::make_grid_map_with_geometry();
+    Robot robot{RobotId{1}, Mission{grid.node("A"), grid.node("B")}, grid.base, {}};
+    robot.configure_dead_reckoning({});
+    ASSERT_TRUE(robot.begin_transit(Tick{0}, 1000));
+    robot.apply_gnss_sample(fleet::localization::LocalizationEstimate{
+        {52.370, 9.731}, 1.5707963267948966, Tick{500}});
+    EXPECT_TRUE(robot.complete_transit());
+    EXPECT_NEAR(robot.localization().estimate()->position.longitude_deg, 9.732, 1e-7);
+    EXPECT_EQ(robot.localization().last_fix_at(), Tick{500});
+}
+
+TEST(RobotDeadReckoningTest, InvalidFixDoesNotConsumeMotionOrChangeBelief) {
+    const auto grid = fleet::testsupport::make_grid_map_with_geometry();
+    Robot robot{RobotId{1}, Mission{grid.node("A"), grid.node("B")}, grid.base, {}};
+    robot.configure_dead_reckoning({});
+    ASSERT_TRUE(robot.begin_transit(Tick{0}, 1000));
+    robot.apply_gnss_sample(fleet::localization::LocalizationEstimate{
+        {52.370, 9.730}, 1.5707963267948966, Tick{0}});
+    const auto original = robot.localization().estimate();
+    EXPECT_THROW(robot.apply_gnss_sample(fleet::localization::LocalizationEstimate{
+        {52.370, 9.731}, std::numeric_limits<double>::quiet_NaN(), Tick{500}}),
+        std::invalid_argument);
+    EXPECT_EQ(robot.localization().estimate(), original);
+    EXPECT_TRUE(robot.complete_transit());
+    EXPECT_NEAR(robot.localization().estimate()->position.longitude_deg, 9.732, 1e-7);
 }
 
 }  // namespace

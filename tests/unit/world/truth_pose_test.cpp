@@ -15,6 +15,7 @@
 #include "fleet/map/geometry.hpp"
 #include "fleet/map/graph.hpp"
 #include "fleet/robot/robot_state.hpp"
+#include "fleet/robot/robot.hpp"
 #include "test_maps.hpp"
 
 namespace {
@@ -247,6 +248,38 @@ TEST_F(TruthPoseTest, EarlyAndLateLegHeadings) {
     const GroundTruthPose late = truth_pose(
         bent_.base, in_transit(bent_.edge, bent_.x, bent_.y, 0, 10000), 0.0, Tick{9900});
     EXPECT_DOUBLE_EQ(late.heading_rad, 0.0);
+}
+
+TEST_F(TruthPoseTest, DeadReckoningFollowsBentPolylineInBothDirectionsWithoutSnapping) {
+    for (const bool reverse : {false, true}) {
+        for (const double scale_error : {0.0, 0.1}) {
+            const auto start = reverse ? bent_.y : bent_.x;
+            const auto goal = reverse ? bent_.x : bent_.y;
+            fleet::robot::Robot robot{fleet::common::RobotId{1}, {start, goal}, bent_.base, {}};
+            robot.configure_dead_reckoning({scale_error, 0.0});
+            ASSERT_TRUE(robot.begin_transit(Tick{0}, 1000));
+            const auto initial = truth_pose(bent_.base, robot.state(), 0.0, Tick{0});
+            robot.apply_gnss_sample(fleet::localization::LocalizationEstimate{
+                initial.position, initial.heading_rad, Tick{0}});
+            const auto final = truth_pose(bent_.base, robot.state(), 0.0, Tick{1000});
+            EXPECT_TRUE(robot.complete_transit());
+            const auto& estimate = *robot.localization().estimate();
+            const double error = fleet::world::localization_position_error_m(final, estimate);
+            if (scale_error == 0.0) {
+                EXPECT_LT(error, 0.01);
+            } else {
+                EXPECT_GT(error, 10.0);
+            }
+            EXPECT_NEAR(estimate.heading_rad, final.heading_rad, 1e-12);
+        }
+    }
+}
+
+TEST_F(TruthPoseTest, PositionErrorDiagnosticIsMetricAndReadOnly) {
+    const GroundTruthPose truth{{0.0, 0.0}, 0.0, Tick{10}};
+    const fleet::localization::LocalizationEstimate estimate{{0.0, 0.001}, 0.0, Tick{0}};
+    EXPECT_NEAR(fleet::world::localization_position_error_m(truth, estimate), 111.19508, 1e-5);
+    EXPECT_EQ(estimate.estimated_at, Tick{0});
 }
 
 }  // namespace

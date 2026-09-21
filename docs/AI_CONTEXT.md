@@ -38,7 +38,7 @@ M3 completed:
 Current next step:
 
 ```text
-#17 deterministic dead reckoning / drift
+#17 deterministic dead reckoning / drift: implemented, awaiting review (ADR-019)
 ```
 
 Do not skip ahead without review.
@@ -235,9 +235,9 @@ action; one model grammar: perfect / unavailable / noisy).
 
 Per-robot GNSS sampling starts at tick 0 and repeats every `period_ms`,
 strictly later each time. A model switch never samples immediately.
-Same-tick order is uniform at every tick: movement transitions ->
-scripted effects -> GNSS sample, so a switch scripted at any tick T
-(including 0) applies before the T sample.
+Equal ticks retain enqueue order. A loaded scripted model switch at tick T
+(including 0) applies before the T sample; movement has no universal
+priority over scripts or samples (ADR-018).
 
 Each robot owns its OWN GNSS RNG stream, derived from the resolved seed
 by specified arithmetic (`derive_stream_seed`; stable RobotId, fixed
@@ -262,6 +262,19 @@ Zero-consumption RNG contracts hold; same scenario + seed is
 byte-identical.
 
 ---
+
+## Dead reckoning (#17, proposed ADR-019)
+
+`localization.dead_reckoning` opts into fixed distance-scale and per-meter
+heading bias. Robot-owned traversal timing and local map geometry produce
+relative increments; `LocalizationTracker::propagate` integrates from belief,
+never from world truth. Segment geometry is cached per departure. No filter or
+new random stream is introduced; propagation consumes no RNG draws.
+
+Without the opt-in block, #16's frozen estimate remains unchanged. With it,
+`estimated_at` advances while `last_fix_at` stays pinned during an outage.
+Trace and console show source/last-fix age; separate simulation-side diagnostics
+show position error without feeding truth to autonomy. Review #17 before #18.
 
 ## Geospatial boundary
 

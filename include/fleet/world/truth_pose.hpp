@@ -66,4 +66,8 @@ namespace fleet::world {
                                                        double at_rest_heading_rad,
                                                        common::Tick now);
 
+[[nodiscard]] double localization_position_error_m(
+    const localization::GroundTruthPose& truth,
+    const localization::LocalizationEstimate& estimate);
+
 }  // namespace fleet::world

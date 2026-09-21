@@ -119,9 +119,9 @@ estimate retained unchanged; age = now - estimated_at grows
   timing + MapGeometry arc length, direction-aware (reverse traversal),
   explicit failure when geometry is missing — never manufactured;
 - sampling from tick 0 at a fixed period, strictly later rescheduling;
-  same-tick ordering uniform at every tick (movement transitions ->
-  scripted effects -> GNSS sample), so a scripted switch at any tick T
-  (including 0) applies before the T sample — test-locked;
+  equal ticks retain enqueue order, with loaded scripted model switches
+  preceding the same-tick sample (including tick 0), as defined by ADR-018;
+  there is no universal movement/script/sample priority;
 - `gnss_sample` / `gnss_model` trace events (belief-side fields only,
   including derived age) and console `robot <name>` localization state;
 - zero-consumption RNG contracts preserved; same scenario + seed is
@@ -132,6 +132,12 @@ estimate retained unchanged; age = now - estimated_at grows
 ## Current objective
 
 ### #17 — Deterministic dead reckoning / drift
+
+**Implemented; awaiting review.** Contract and limitations are recorded in
+[ADR-019](design_decisions/ADR-019-deterministic-dead-reckoning.md).
+The opt-in implementation uses robot-owned graph motion, fixed distance/heading
+bias, last-fix age, and outward-only position-error diagnostics. #18 is not
+promoted until this step has been reviewed.
 
 Advance robot-local estimated state during a GNSS outage from the
 robot's OWN motion, with accumulating error — the frozen #16 estimate

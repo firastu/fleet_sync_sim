@@ -8,11 +8,25 @@
 
 namespace fleet::localization {
 
+struct DeadReckoningConfig {
+    double distance_scale_error = 0.0;
+    double heading_drift_rad_per_m = 0.0;
+
+    void validate() const;
+};
+
+struct OdometryIncrement {
+    double distance_m = 0.0;
+    double turn_rad = 0.0;
+    common::Tick from{};
+    common::Tick to{};
+};
+
 // Robot-local localization state (#16, ADR-016/018): the LAST VALID
 // LocalizationEstimate this robot holds, plus the staleness that grows
-// around it. This is BELIEF, not truth — it is written only through GNSS
-// sample outcomes and never reads GroundTruthPose, the world or the
-// sensor model that produced the sample.
+// around it. This is BELIEF, not truth: GNSS sample outcomes and opt-in
+// relative odometry propagation write it. It never reads GroundTruthPose,
+// the world or the sensor model that produced a sample (ADR-019).
 //
 // Retention contract (the heart of #16):
 //   - apply_sample(estimate) — a successful fix — REPLACES the retained
@@ -35,6 +49,8 @@ public:
     // heading: NaN/inf never silently become localization state.
     void apply_sample(const std::optional<LocalizationEstimate>& sample);
 
+    void propagate(const OdometryIncrement& motion, const DeadReckoningConfig& config);
+
     // The retained estimate; nullopt before the first successful fix.
     [[nodiscard]] const std::optional<LocalizationEstimate>& estimate() const noexcept {
         return estimate_;
@@ -46,8 +62,15 @@ public:
     // staleness observable this type exists to provide.
     [[nodiscard]] std::optional<std::uint64_t> age_at(common::Tick now) const;
 
+    [[nodiscard]] std::optional<common::Tick> last_fix_at() const noexcept {
+        return last_fix_at_;
+    }
+    [[nodiscard]] bool dead_reckoned() const noexcept { return dead_reckoned_; }
+
 private:
     std::optional<LocalizationEstimate> estimate_;
+    std::optional<common::Tick> last_fix_at_;
+    bool dead_reckoned_ = false;
 };
 
 }  // namespace fleet::localization

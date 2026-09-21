@@ -63,7 +63,8 @@ fleet_target_warnings(fleet_network)
 # Autonomous participants: mission, local knowledge, routing autonomy,
 # and robot-local localization state (the retained estimate, #16).
 add_library(fleet_robot STATIC
-  robot/robot.cpp)
+  robot/robot.cpp
+  robot/odometry.cpp)
 add_library(fleet::robot ALIAS fleet_robot)
 target_link_libraries(fleet_robot PUBLIC fleet::planning fleet::map fleet::localization)
 fleet_target_warnings(fleet_robot)

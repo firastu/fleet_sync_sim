@@ -17,8 +17,8 @@ The project studies robots that can:
 > The deterministic distributed-autonomy platform, movement/sensing layer,
 > OSM/GeoJSON integration, and interactive scenario tooling are established.
 > M3 currently studies positioning degradation: the localization boundary and
-> deterministic noisy GNSS are implemented; outage and stale-estimate semantics
-> are next.
+> deterministic noisy GNSS, outages and stale estimates are implemented.
+> Opt-in deterministic dead reckoning is implemented and awaiting #17 review.
 
 FleetSyncSim began with **distributed robot-local map knowledge under unreliable
 communication**. It now provides a broader deterministic autonomy test platform
@@ -65,7 +65,7 @@ GNSS unavailable
 last estimate becomes stale
       |
       v
-later: dead reckoning / local sensing / map matching
+optional dead reckoning advances belief with accumulating drift
       |
       v
 controlled degradation
@@ -94,7 +94,8 @@ conditions reproducibly.
 * deterministic GeoJSON debugging/export;
 * localization truth/estimate boundary;
 * perfect, unavailable and deterministic noisy GNSS models;
-* GNSS outage scenarios with retained, aging localization estimates.
+* GNSS outage scenarios with retained, aging localization estimates;
+* opt-in robot-local dead reckoning with deterministic drift and error diagnostics.
 
 For exact active implementation scope, see:
 
@@ -197,6 +198,20 @@ default seed 0
 
 Where the relevant ADR defines byte-stable behavior, the same scenario and
 resolved seed reproduce the same structured trace.
+
+Compare the frozen outage baseline in `scenarios/gnss_outage.json` with the
+dead-reckoning experiment:
+
+```sh
+./build/debug/apps/fleet_sim/fleet_sim \
+    --scenario scenarios/dead_reckoning.json --trace drift.jsonl
+```
+
+`gnss_sample` reports propagated belief and last-fix age; separate
+`localization_error` events report simulation-side position error in meters.
+The console's `robot robot_a` command shows both without changing state.
+Configuration and approximation limits are in
+[ADR-019](docs/design_decisions/ADR-019-deterministic-dead-reckoning.md).
 
 ---
 

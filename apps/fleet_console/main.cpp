@@ -207,6 +207,13 @@ private:
                                  estimate.position.latitude_deg,
                                  estimate.position.longitude_deg,
                                  estimate.heading_rad);
+        std::cout << std::format("  source: {}\n  last_fix_at: {}\n  last_fix_age_ms: {}\n",
+            localization.dead_reckoned() ? "dead_reckoning" : "gnss",
+            localization.last_fix_at()->value,
+            runner_.now().value - localization.last_fix_at()->value);
+        if (const auto error = runner_.localization_position_error_m(name)) {
+            std::cout << std::format("simulation diagnostic:\n  position_error_m: {:.3f}\n", *error);
+        }
     }
 
     void print_station() {

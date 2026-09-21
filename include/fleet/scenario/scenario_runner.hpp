@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -141,6 +142,7 @@ public:
     // Post-run access for tests and callers. robot() throws
     // std::invalid_argument for an unknown name.
     [[nodiscard]] const robot::Robot& robot(std::string_view name) const;
+    [[nodiscard]] std::optional<double> localization_position_error_m(std::string_view name) const;
     [[nodiscard]] const station::ControlStation* station() const noexcept;
 
 private:
@@ -177,8 +179,8 @@ private:
     void sample_gnss(std::size_t index);
 
     // Starts the per-robot sampling chains (tick 0). Called from begin()
-    // AFTER schedule_events(): enqueue order at every tick is movement
-    // transitions -> scripted effects -> GNSS sample (ADR-018).
+    // AFTER schedule_events(): loaded model switches precede same-tick
+    // samples; other event classes retain enqueue order (ADR-018).
     void start_localization_chains();
 
     [[nodiscard]] std::size_t index_of_robot(std::string_view name) const;

@@ -196,4 +196,9 @@ localization::GroundTruthPose truth_pose(const map::BaseMap& base,
     return localization::GroundTruthPose{position, heading, now};
 }
 
+double localization_position_error_m(const localization::GroundTruthPose& truth,
+                                      const localization::LocalizationEstimate& estimate) {
+    return haversine_meters(truth.position, estimate.position);
+}
+
 }  // namespace fleet::world

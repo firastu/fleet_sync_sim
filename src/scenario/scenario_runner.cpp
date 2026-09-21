@@ -95,7 +95,16 @@ ScenarioRunner::ScenarioRunner(const map::BaseMap& base, Scenario scenario,
     // robot-local streams, schedule-independent of one another.
     // for 0.0 : initial physical orientation at scenario start is north.
     rest_heading_rad_.assign(scenario_.robots.size(), 0.0);
+    if (scenario_.localization.dead_reckoning) {
+        scenario_.localization.dead_reckoning->validate();
+        if (!scenario_.localization.enabled) {
+            throw std::invalid_argument("ScenarioRunner: dead reckoning requires localization");
+        }
+    }
     if (scenario_.localization.enabled) {
+        if (!scenario_.duration_ms) {
+            throw std::invalid_argument("ScenarioRunner: localization requires duration_ms");
+        }
         if (scenario_.localization.gnss_period_ms == 0) {
             throw std::invalid_argument(
                 "ScenarioRunner: localization gnss period_ms must be >= 1");
@@ -126,6 +135,18 @@ const robot::Robot& ScenarioRunner::robot(std::string_view name) const {
 
 const station::ControlStation* ScenarioRunner::station() const noexcept {
     return station_.get();
+}
+
+std::optional<double> ScenarioRunner::localization_position_error_m(std::string_view name) const {
+    const auto index = index_of_robot(name);
+    const auto& participant = *robots_.at(index);
+    const auto& estimate = participant.localization().estimate();
+    if (!estimate) {
+        return std::nullopt;
+    }
+    return world::localization_position_error_m(
+        world::truth_pose(base_, participant.state(), rest_heading_rad_[index], queue_->clock().now()),
+        *estimate);
 }
 
 void ScenarioRunner::emit(TraceEvent event) {
@@ -220,6 +241,9 @@ void ScenarioRunner::wire_world() {
                     emit(std::move(event));
                 }
             }));
+        if (scenario_.localization.dead_reckoning) {
+            robots_.back()->configure_dead_reckoning(*scenario_.localization.dead_reckoning);
+        }
     }
 
     for (std::size_t index = 0; index < robot_count; ++index) {
@@ -496,6 +520,7 @@ std::unique_ptr<localization::GnssModel> ScenarioRunner::make_gnss_model(
 void ScenarioRunner::sample_gnss(std::size_t index) {
     robot::Robot& robot = *robots_[index];
     const common::Tick now = queue_->clock().now();
+    robot.advance_localization(now);
 
     // Truth on the simulation side only (ADR-016/018): derived from the
     // movement state and map geometry, never from the robot's belief.
@@ -534,21 +559,34 @@ void ScenarioRunner::sample_gnss(std::size_t index) {
             "position", std::format("{:.6f},{:.6f}", estimate->position.latitude_deg,
                                     estimate->position.longitude_deg));
         event.fields.emplace_back("heading", std::format("{:.6f}", estimate->heading_rad));
+        if (scenario_.localization.dead_reckoning) {
+            event.fields.emplace_back("estimate_source",
+                std::string{robot.localization().dead_reckoned() ? "dead_reckoning" : "gnss"});
+            event.fields.emplace_back("last_fix_at",
+                static_cast<std::int64_t>(robot.localization().last_fix_at()->value));
+            event.fields.emplace_back("last_fix_age",
+                static_cast<std::int64_t>(now.value - robot.localization().last_fix_at()->value));
+        }
     }
     emit(std::move(event));
 
     // Strictly later reschedule (ADR-005/010/018): period_ms >= 1 is
     // enforced at the constructor choke point — no zero-time loop.
+    if (scenario_.localization.dead_reckoning && robot.localization().estimate()) {
+        emit(TraceEvent{now, "world", "localization_error",
+            {{"robot", robot_name_of(robot.id())},
+             {"position_error_m", world::localization_position_error_m(
+                 truth, *robot.localization().estimate())}}});
+    }
     queue_->schedule(now + scenario_.localization.gnss_period_ms,
                      [this, index] { sample_gnss(index); });
 }
 
 void ScenarioRunner::start_localization_chains() {
     // Enqueued AFTER wire_world()'s movement chains and AFTER
-    // schedule_events()'s scripted events — the enqueue order that makes
-    // every tick uniform: movement transitions -> scripted effects ->
-    // GNSS sample. A switch scripted at any tick T (including 0) applies
-    // before the T sample (ADR-018; test-locked).
+    // schedule_events()'s scripted events. Loaded model switches precede
+    // same-tick samples, including tick 0; other event classes retain
+    // enqueue order (ADR-018).
     for (std::size_t index = 0; index < robots_.size(); ++index) {
         queue_->schedule(common::Tick{0}, [this, index] { sample_gnss(index); });
     }
@@ -598,7 +636,7 @@ ScenarioRunner::Result ScenarioRunner::run_to_completion() {
         // then nothing more runs and the snapshot is returned; draining
         // instead would chase unbounded park-and-retry chains.
         const common::Tick horizon{*scenario_.duration_ms};
-        if (horizon > queue_->clock().now()) {
+        if (horizon >= queue_->clock().now()) {
             queue_->run_until(horizon);
         }
     } else {

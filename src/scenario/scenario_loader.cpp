@@ -240,6 +240,26 @@ using json = nlohmann::json;
     }
     localization.initial_model = parse_gnss_model_spec(
         require(gnss, "initial_model", "localization"), "localization: initial_model");
+    if (const auto propagation = entry->find("dead_reckoning"); propagation != entry->end()) {
+        if (!propagation->is_object()) {
+            throw load_error("localization: 'dead_reckoning' must be an object");
+        }
+        localization::DeadReckoningConfig config;
+        for (const auto& [key, value] : propagation->items()) {
+            if (!value.is_number()) {
+                throw load_error("dead_reckoning: bias fields must be numbers");
+            }
+            if (key == "distance_scale_error") {
+                config.distance_scale_error = value.get<double>();
+            } else if (key == "heading_drift_rad_per_m") {
+                config.heading_drift_rad_per_m = value.get<double>();
+            } else {
+                throw load_error(std::format("dead_reckoning: unknown field '{}'", key));
+            }
+        }
+        config.validate();
+        localization.dead_reckoning = config;
+    }
     return localization;
 }
 

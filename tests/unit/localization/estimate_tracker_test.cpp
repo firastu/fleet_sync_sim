@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <stdexcept>
 
@@ -98,6 +99,97 @@ TEST(LocalizationTrackerTest, NonFiniteFixIsRejected) {
                  std::invalid_argument);
     // Nothing became state.
     EXPECT_FALSE(tracker.estimate().has_value());
+}
+
+TEST(LocalizationTrackerTest, DeadReckoningAdvancesWhileNoFixRemainsFrozen) {
+    LocalizationTracker frozen;
+    LocalizationTracker moving;
+    frozen.apply_sample(fix_at(0, 0.0, 0.0, 0.0));
+    moving.apply_sample(frozen.estimate());
+    const fleet::localization::DeadReckoningConfig config{0.1, 0.0};
+    for (std::uint64_t tick = 1; tick <= 10; ++tick) {
+        frozen.apply_sample(std::nullopt);
+        moving.propagate({10.0, 0.0, Tick{tick - 1}, Tick{tick}}, config);
+        const auto expected = fleet::localization::apply_en_displacement(
+            Wgs84Coordinate{0.0, 0.0}, 0.0, 11.0 * static_cast<double>(tick));
+        EXPECT_NEAR(moving.estimate()->position.latitude_deg, expected.latitude_deg, 1e-12);
+        EXPECT_EQ(moving.age_at(Tick{tick}), 0U);
+        EXPECT_EQ(frozen.age_at(Tick{tick}), tick);
+    }
+}
+
+TEST(LocalizationTrackerTest, DeadReckoningPreservesHeadingErrorAndAccumulatesDrift) {
+    LocalizationTracker tracker;
+    tracker.apply_sample(fix_at(0, 0.0, 0.0, 0.2));
+    tracker.propagate({10.0, std::numbers::pi / 2.0, Tick{0}, Tick{1}}, {0.0, 0.01});
+    EXPECT_NEAR(tracker.estimate()->heading_rad, 0.3 + std::numbers::pi / 2.0, 1e-12);
+    EXPECT_GT(tracker.estimate()->position.longitude_deg, 0.0);
+    EXPECT_LT(tracker.estimate()->position.latitude_deg, 0.0);
+}
+
+TEST(LocalizationTrackerTest, DeadReckoningDoesNotManufactureAnInitialFix) {
+    LocalizationTracker tracker;
+    tracker.propagate({10.0, 0.1, Tick{0}, Tick{1}}, {});
+    EXPECT_FALSE(tracker.estimate());
+}
+
+TEST(LocalizationTrackerTest, DeadReckoningRejectsInvalidMotionWithoutMutation) {
+    LocalizationTracker tracker;
+    tracker.apply_sample(fix_at(10));
+    const auto original = tracker.estimate();
+    EXPECT_THROW(tracker.propagate({1.0, 0.0, Tick{9}, Tick{11}}, {}), std::invalid_argument);
+    EXPECT_THROW(tracker.propagate({-1.0, 0.0, Tick{10}, Tick{11}}, {}), std::invalid_argument);
+    EXPECT_THROW(tracker.propagate({1.0, 0.0, Tick{10}, Tick{11}}, {-1.0, 0.0}),
+                 std::invalid_argument);
+    EXPECT_THROW(tracker.propagate({1.0, 0.0, Tick{10}, Tick{11}},
+                                  {0.0, std::numeric_limits<double>::infinity()}),
+                 std::invalid_argument);
+    EXPECT_EQ(tracker.estimate(), original);
+}
+
+TEST(LocalizationTrackerTest, StationaryPropagationRefreshesTimeNotAbsoluteFixOrPosition) {
+    LocalizationTracker tracker;
+    tracker.apply_sample(fix_at(10));
+    const auto position = tracker.estimate()->position;
+    tracker.propagate({0.0, 0.0, Tick{10}, Tick{20}}, {0.1, 0.5});
+    EXPECT_EQ(tracker.estimate()->position, position);
+    EXPECT_DOUBLE_EQ(tracker.estimate()->heading_rad, 0.5);
+    EXPECT_EQ(tracker.estimate()->estimated_at, Tick{20});
+    EXPECT_EQ(tracker.last_fix_at(), Tick{10});
+    EXPECT_TRUE(tracker.dead_reckoned());
+    const auto propagated = tracker.estimate();
+    tracker.apply_sample(std::nullopt);
+    EXPECT_EQ(tracker.estimate(), propagated);
+    tracker.apply_sample(fix_at(30));
+    EXPECT_EQ(tracker.last_fix_at(), Tick{30});
+    EXPECT_FALSE(tracker.dead_reckoned());
+}
+
+TEST(LocalizationTrackerTest, DeadReckoningWrapsAntimeridianAndRejectsPoleCrossingAtomically) {
+    LocalizationTracker tracker;
+    tracker.apply_sample(fix_at(0, 0.0, 179.99999, std::numbers::pi / 2.0));
+    tracker.propagate({10.0, 0.0, Tick{0}, Tick{1}}, {});
+    EXPECT_LT(tracker.estimate()->position.longitude_deg, -179.99);
+    tracker.apply_sample(fix_at(10, 89.9999, 0.0, 0.0));
+    const auto original = tracker.estimate();
+    EXPECT_THROW(tracker.propagate({100.0, 0.0, Tick{10}, Tick{11}}, {}), std::invalid_argument);
+    EXPECT_EQ(tracker.estimate(), original);
+    EXPECT_FALSE(tracker.dead_reckoned());
+    EXPECT_EQ(tracker.last_fix_at(), Tick{10});
+}
+
+TEST(LocalizationTrackerTest, DeadReckoningRejectsNonFiniteAndOversizedInputs) {
+    LocalizationTracker tracker;
+    tracker.apply_sample(fix_at(10));
+    const double infinity = std::numeric_limits<double>::infinity();
+    const auto original = tracker.estimate();
+    EXPECT_THROW(tracker.propagate({infinity, 0.0, Tick{10}, Tick{11}}, {}), std::invalid_argument);
+    EXPECT_THROW(tracker.propagate({1.0, infinity, Tick{10}, Tick{11}}, {}), std::invalid_argument);
+    EXPECT_THROW(tracker.propagate({1.0, 0.0, Tick{10}, Tick{9}}, {}), std::invalid_argument);
+    EXPECT_THROW(tracker.propagate({1000001.0, 0.0, Tick{10}, Tick{11}}, {}), std::invalid_argument);
+    EXPECT_THROW(tracker.propagate({1.0, 0.0, Tick{10}, Tick{11}}, {infinity, 0.0}),
+                 std::invalid_argument);
+    EXPECT_EQ(tracker.estimate(), original);
 }
 
 }  // namespace
