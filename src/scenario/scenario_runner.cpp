@@ -149,6 +149,16 @@ std::optional<double> ScenarioRunner::localization_position_error_m(std::string_
         *estimate);
 }
 
+localization::GroundTruthPose ScenarioRunner::truth_pose_for(std::string_view name) const {
+    if (!begun_) {
+        throw std::logic_error("scenario runner: truth_pose_for requires begin()");
+    }
+    const auto index = index_of_robot(name);
+    const auto& participant = *robots_.at(index);
+    return world::truth_pose(base_, participant.state(), rest_heading_rad_[index],
+                             queue_->clock().now());
+}
+
 void ScenarioRunner::emit(TraceEvent event) {
     for (TraceSink* sink : sinks_) {
         sink->record(event);

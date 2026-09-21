@@ -48,6 +48,14 @@ target_link_libraries(fleet_unit_tests PRIVATE fleet::station fleet::robot fleet
                                            GTest::gtest_main)
 fleet_target_warnings(fleet_unit_tests)
 
+# Isaac stage 1 adapter tests (ADR-020): present only with the opt-in tools
+# enabled; the default OFF baseline test set is unchanged.
+if(FLEET_BUILD_ISAAC_TOOLS)
+  target_sources(fleet_unit_tests PRIVATE unit/isaac/isaac_export_test.cpp)
+  target_link_libraries(fleet_unit_tests PRIVATE fleet::isaac_export_core
+                                           nlohmann_json::nlohmann_json)
+endif()
+
 # Committed OSM PBF fixtures are copied next to the test binary like the
 # scenario files; tests load them from fixtures/osm/.
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/fixtures

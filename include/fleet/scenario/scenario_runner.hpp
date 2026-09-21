@@ -145,6 +145,18 @@ public:
     [[nodiscard]] std::optional<double> localization_position_error_m(std::string_view name) const;
     [[nodiscard]] const station::ControlStation* station() const noexcept;
 
+    // Simulation-side truth pose of one robot at the CURRENT logical time
+    // (Isaac stage 1 read-only replay export, ADR-020). Observation ONLY:
+    // the same world::truth_pose derivation the localization wiring uses —
+    // position from movement state + map geography, heading from the
+    // runner-held physical orientation (north until first arrival, then the
+    // completed traversal's final-segment bearing). Requires begin()
+    // (run_until implicitly begins): throws std::logic_error before it and
+    // std::invalid_argument for an unknown name. Reading it consumes no
+    // randomness, mutates nothing, and there is no path to it from robot
+    // autonomy (ADR-007/011/018).
+    [[nodiscard]] localization::GroundTruthPose truth_pose_for(std::string_view name) const;
+
 private:
     void emit(TraceEvent event);
     void wire_world();

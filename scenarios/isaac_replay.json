@@ -1,0 +1,23 @@
+{
+  "name": "isaac_replay",
+  "seed": 17,
+  "movement": {
+    "ms_per_cost_unit": 2000
+  },
+  "localization": {
+    "gnss": {
+      "period_ms": 1000,
+      "initial_model": "perfect"
+    }
+  },
+  "duration_ms": 6000,
+  "robots": [
+    {
+      "name": "robot_a",
+      "id": 1,
+      "endpoint": 1,
+      "mission": { "start": "A", "goal": "C" }
+    }
+  ],
+  "events": []
+}

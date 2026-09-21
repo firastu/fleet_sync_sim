@@ -7,6 +7,9 @@ project(fleet-sync-sim
 
 option(FLEET_BUILD_TESTS "Build the test tree" ON)
 option(FLEET_WERROR "Treat compiler warnings as errors" ON)
+# Isaac stage 1 adapter targets (ADR-020): opt-in and CPU-only. Neither its
+# ON nor OFF configuration locates or links Isaac, CUDA, USD, Python or ROS.
+option(FLEET_BUILD_ISAAC_TOOLS "Build the opt-in Isaac adapter targets" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
