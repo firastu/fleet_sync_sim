@@ -1,10 +1,13 @@
 # Isaac Integration Implementation Checklist
 
-Status: proposed work packages, not implementation authorization. Read
-[README.md](README.md), complete [SETUP.md](SETUP.md), and review
-[ARCHITECTURE.md](ARCHITECTURE.md) first. This file explains how to implement
-the proposal once its stage is approved. None of the proposed executables,
-scripts or switches below exists yet.
+Status: stage 1 work packages 1 (native export) and the CPU-side parts of 2
+(conversion functions, export loader/validator) are implemented under
+[ADR-020](../design_decisions/ADR-020-isaac-stage1-readonly-replay-export.md);
+the Isaac rendering path of package 2 has not run on a GPU yet. Stage 2
+(sensor harness) and stage 3 (motion backend) remain proposals requiring
+separate owner promotion. Read [README.md](README.md), complete
+[SETUP.md](SETUP.md), and review [ARCHITECTURE.md](ARCHITECTURE.md) first
+for the not-yet-implemented stages.
 
 ## Working agreement
 
@@ -40,23 +43,23 @@ CPU-only packages, but it blocks claiming the stage's Isaac smoke test passed.
 
 ## Proposed file placement
 
-Create files only as their package requires them. These are future paths, not
-links to implemented components:
+Create files only as their package requires them. Stage 1 entries exist and
+are tested; the rest are future paths, not links to implemented components:
 
 ```text
 apps/fleet_isaac_export/       stage 1 native replay exporter + local CMakeLists
 apps/fleet_isaac_worker/       stage 2 worker, codec and measurement adapters
-tools/isaac/replay.py         stage 1 read-only Isaac viewer
+tools/isaac/conversion.py      stage 1 pure WGS84<->scene conversions (implemented)
+tools/isaac/replay.py          stage 1 read-only Isaac viewer (implemented, GPU-untested)
 tools/isaac/sensor_harness.py  stage 2 Isaac coordinator
-tools/isaac/tests/            pure-Python tests; optional GPU smoke test
-tests/unit/isaac/             native adapter/protocol tests
-tests/fixtures/isaac/         small intentional manifests and input journals
+tools/isaac/tests/             pure-Python tests; optional GPU smoke test
+tests/unit/isaac/              native adapter/protocol tests
+tests/fixtures/isaac/          small intentional manifests and input journals
 ```
 
-Use an opt-in `FLEET_BUILD_ISAAC_TOOLS` option, default OFF, for native adapter
-targets. This is a proposed option, not an existing CMake switch. Neither its
-ON nor OFF configuration should locate Isaac, CUDA, USD, Python or ROS. The
-Python application runs separately through NVIDIA's launcher.
+The opt-in `FLEET_BUILD_ISAAC_TOOLS` option exists (root `CMakeLists.txt`),
+defaults OFF, and in neither configuration locates Isaac, CUDA, USD, Python
+or ROS. The Python application runs separately through NVIDIA's launcher.
 
 Follow [apps/CMakeLists.txt](../../apps/CMakeLists.txt) and
 [tests/CMakeLists.txt](../../tests/CMakeLists.txt). Keep JSON parsing PRIVATE,

@@ -38,7 +38,8 @@ M3 completed:
 Current next step:
 
 ```text
-#17 deterministic dead reckoning / drift: implemented, awaiting review (ADR-019)
+#18 reacquisition behavior (M3 sequence), with the bounded Isaac stage 1
+exception implemented alongside (ADR-020, read-only replay export)
 ```
 
 Do not skip ahead without review.
@@ -314,34 +315,33 @@ Internal `Wgs84Coordinate` uses named latitude/longitude fields.
 
 ## External physical simulation
 
-NVIDIA Isaac Sim is part of the long-term validation strategy, not the current
-runtime core.
-
-Intended relationship:
+NVIDIA Isaac Sim integration began as a bounded owner-authorized exception
+(2026-09-21): **stage 1 read-only replay** is implemented (ADR-020) —
 
 ```text
 FleetSyncSim
-    autonomy + distributed-system semantics
+     apps/fleet_isaac_export (opt-in FLEET_BUILD_ISAAC_TOOLS, default OFF)
+     -> manifest.json + poses.jsonl (versioned fleet-isaac-replay/1)
+     -> tools/isaac pure conversion + export validation (CPU-tested)
+     -> tools/isaac/replay.py Isaac viewer (GPU path NOT yet validated)
 
 Isaac Sim
-    physics + robot motion + simulated sensors
+     display-only markers for simulation truth and robot-local belief
 ```
 
-Planned direction after the current M3 localization semantics are established:
+Contracts that hold now:
 
-```text
-FleetSyncSim adapters
-        |
-        +---- Isaac ground-truth pose
-        +---- IMU / odometry
-        +---- later perception sensors
-```
+* one observation-only `ScenarioRunner::truth_pose_for(name)` accessor —
+  no autonomy oracle, no injection API;
+* the export never changes the normal trace and is itself byte-reproducible;
+* the georeferencing seam lives only in `tools/isaac/conversion.py`
+  (ENU, X east/Y north/Z up, R = 6371008.8 m, footprint ~50 m,
+  heading -> yaw = pi/2 - heading, scalar-first quaternions);
+* no Isaac/ROS/simulator type enters domain modules; the deterministic
+  simulator remains the behavioral reference.
 
-Isaac must remain behind explicit adapters.
-
-Do not introduce Isaac, ROS 2, or simulator-specific types into FleetSyncSim
-domain modules until a future milestone promotes that work.
-
+Stages 2 (sensor harness + process protocol) and 3 (physical motion backend)
+are NOT scope: each requires separate owner promotion and its own ADR.
 The deterministic simulator remains the behavioral reference even after a
 higher-fidelity physical backend exists.
 
@@ -445,7 +445,7 @@ has or needs:
 
 * threads;
 * ROS 2;
-* Isaac integration;
+* Isaac integration beyond the bounded stage 1 exception (ADR-020);
 * SLAM;
 * an EKF;
 * visual odometry;
