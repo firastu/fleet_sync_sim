@@ -3,8 +3,6 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
-#include <optional>
-#include <stdexcept>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -104,6 +102,7 @@ TEST_F(TruthPoseTest, AtRestHeadingIsNormalized) {
 
     EXPECT_NEAR(pose.heading_rad, kPi / 2.0, 1e-15);
 }
+
 TEST_F(TruthPoseTest, NonFiniteAtRestHeadingFails) {
     EXPECT_THROW(
         (void)truth_pose(
@@ -162,7 +161,7 @@ TEST_F(TruthPoseTest, DepartureAndArrivalLandExactlyOnEndpoints) {
         grid_.base, in_transit(edge, grid_.node("A"), grid_.node("B"), 0, 1000), 0.0, Tick{0});
     EXPECT_EQ(start.position, canonical("A"));  // bit-exact canonical coordinate
     const GroundTruthPose end = truth_pose(
-        grid_.base, in_transit(edge, grid_.node("A"), grid_.node("B"), 0, 1000), 0.0,Tick{1000});
+        grid_.base, in_transit(edge, grid_.node("A"), grid_.node("B"), 0, 1000), 0.0, Tick{1000});
     EXPECT_EQ(end.position, canonical("B"));  // bit-exact canonical coordinate
 }
 
@@ -210,7 +209,7 @@ TEST_F(TruthPoseTest, BentPolylineInterpolatesByArcLengthNotPointIndex) {
     // strictly BEFORE the vertex. An index-based halfway point (one of
     // two segments) would sit exactly ON the vertex instead.
     const GroundTruthPose half = truth_pose(
-        bent_.base, in_transit(bent_.edge, bent_.x, bent_.y, 0, 10000),  0.0, Tick{5000});
+        bent_.base, in_transit(bent_.edge, bent_.x, bent_.y, 0, 10000), 0.0, Tick{5000});
     EXPECT_DOUBLE_EQ(half.position.latitude_deg, 52.0000);  // the east leg keeps latitude
     EXPECT_GT(half.position.longitude_deg, 10.0000);
     EXPECT_LT(half.position.longitude_deg, 10.0019);  // strictly before the bend

@@ -49,6 +49,7 @@ TEST(DeterministicRngTest, DerivedStreamsSeparateDomainIndexAndBaseSeed) {
         derive_stream_seed(42, kDomain, 1),
         derive_stream_seed(42, kDomain ^ 1ULL, 1));
 }
+
 TEST(DeterministicRngTest, SameSeedProducesIdenticalSequences) {
     DeterministicRng first{42};
     DeterministicRng second{42};
