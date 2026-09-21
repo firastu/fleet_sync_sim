@@ -32,12 +32,13 @@ M3 completed:
 ```text
 #14 localization boundary       ADR-016
 #15 deterministic noisy GNSS    ADR-017
+#16 outage + stale estimates    ADR-018
 ```
 
 Current next step:
 
 ```text
-#16 outage + stale-estimate scenarios
+#17 deterministic dead reckoning / drift
 ```
 
 Do not skip ahead without review.
@@ -227,6 +228,41 @@ receiver simulation.
 
 ---
 
+## Outage and stale localization (#16, ADR-018)
+
+Localization is scenario opt-in (`"localization"` block + `set_gnss_model`
+action; one model grammar: perfect / unavailable / noisy).
+
+Per-robot GNSS sampling starts at tick 0 and repeats every `period_ms`,
+strictly later each time. A model switch never samples immediately.
+Same-tick order is uniform at every tick: movement transitions ->
+scripted effects -> GNSS sample, so a switch scripted at any tick T
+(including 0) applies before the T sample.
+
+Each robot owns its OWN GNSS RNG stream, derived from the resolved seed
+by specified arithmetic (`derive_stream_seed`; stable RobotId, fixed
+GNSS domain) — adding, removing or rescheduling other robots never
+shifts a robot's noise sequence.
+
+The retained estimate is robot-local (`LocalizationTracker` on `Robot`):
+a fix replaces it, a no-fix retains it, and age is derived
+(`now - estimated_at`), never stored.
+
+Truth pose is derived simulation-side by `world::truth_pose` from
+movement timing + MapGeometry arc length (direction-aware, exact
+canonical endpoints, explicit failure when geometry is missing).
+Stationary orientation is real truth, not a placeholder: an explicit
+initial condition (north) retained kinematically across arrivals as the
+completed traversal's final-segment bearing.
+
+Trace: `gnss_sample` / `gnss_model` events carry belief-side fields
+only. Console: `robot <name>` shows the localization block.
+
+Zero-consumption RNG contracts hold; same scenario + seed is
+byte-identical.
+
+---
+
 ## Geospatial boundary
 
 Real map flow:
@@ -322,7 +358,7 @@ fleet::robot
     robot-local autonomy
 
 fleet::world
-    simulation ground truth
+    simulation ground truth, observation boundary, truth-pose derivation
 
 fleet::scenario
     scenario loading, scheduling and orchestration
@@ -334,7 +370,7 @@ fleet::geojson
     outward-only debug/export adapters
 
 fleet::localization
-    pose, GNSS models, localization boundary
+    pose, GNSS models, estimate retention, localization boundary
 ```
 
 Apps are adapters around these modules rather than owners of domain logic.
