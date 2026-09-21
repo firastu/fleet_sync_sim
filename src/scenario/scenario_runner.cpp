@@ -537,8 +537,9 @@ void ScenarioRunner::sample_gnss(std::size_t index) {
 
     // Retention is robot-local (#16): a fix replaces the retained
     // estimate, a no-fix retains it — the sample outcome is all the
-    // robot ever learns.
-    robot.apply_gnss_sample(fix);
+    // robot ever learns. The returned transition (ADR-021) is what the
+    // reacquisition trace fields below observe.
+    const localization::FixApplication applied = robot.apply_gnss_sample(fix);
 
     // The trace event carries BELIEF only: outcome plus the retained
     // estimate and its age. Truth coordinates are deliberately absent —
@@ -566,6 +567,27 @@ void ScenarioRunner::sample_gnss(std::size_t index) {
                 static_cast<std::int64_t>(robot.localization().last_fix_at()->value));
             event.fields.emplace_back("last_fix_age",
                 static_cast<std::int64_t>(now.value - robot.localization().last_fix_at()->value));
+        }
+    }
+    // Reacquisition observability (#18, ADR-021): these transition fields
+    // exist ONLY on the sample where a fix returns after at least one miss
+    // — every other gnss_sample event, in every existing fixture, is
+    // byte-unchanged.
+    if (applied.fix && applied.reacquisition) {
+        event.fields.emplace_back("reacquired", true);
+        event.fields.emplace_back("prior_source",
+            std::string{applied.prior_dead_reckoned ? "dead_reckoning" : "gnss"});
+        if (applied.since_last_fix_ms.has_value()) {
+            event.fields.emplace_back(
+                "since_last_fix_ms", static_cast<std::int64_t>(*applied.since_last_fix_ms));
+        }
+        if (applied.correction_distance_m.has_value()) {
+            event.fields.emplace_back(
+                "correction_m", std::format("{:.6f}", *applied.correction_distance_m));
+        }
+        if (applied.correction_heading_rad.has_value()) {
+            event.fields.emplace_back("correction_heading_rad",
+                std::format("{:.6f}", *applied.correction_heading_rad));
         }
     }
     emit(std::move(event));

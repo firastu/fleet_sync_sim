@@ -22,6 +22,30 @@ struct OdometryIncrement {
     common::Tick to{};
 };
 
+// What applying ONE GNSS sample did to robot-local belief (#18, ADR-021):
+// pure transition observability. It changes no behavior — the retention
+// contract below is untouched — and describes BELIEF only (no truth, no
+// sensor model, no randomness).
+struct FixApplication {
+    bool fix = false;              // a fix arrived and replaced belief
+    bool reacquisition = false;    // first fix after >= 1 missed samples that
+                                   // also had a prior estimate (an initial
+                                   // acquisition is not a reacquisition)
+    std::optional<std::uint64_t> since_last_fix_ms;  // gap to the replaced
+                                                     // fix's timestamp;
+                                                     // nullopt without one
+    std::optional<double> correction_distance_m;     // haversine from the
+                                                     // prior (pre-replacement)
+                                                     // estimate to the fix
+    std::optional<double> correction_heading_rad;    // bearing of that
+                                                     // correction, [0, 2*pi);
+                                                     // nullopt with no prior
+                                                     // or zero distance
+    bool prior_dead_reckoned = false;                // the replaced belief had
+                                                     // been propagated
+                                                     // (drifted), not frozen
+};
+
 // Robot-local localization state (#16, ADR-016/018): the LAST VALID
 // LocalizationEstimate this robot holds, plus the staleness that grows
 // around it. This is BELIEF, not truth: GNSS sample outcomes and opt-in
@@ -43,11 +67,26 @@ struct OdometryIncrement {
 // Thread-safety: not synchronized (ADR-002).
 class LocalizationTracker {
 public:
-    // Feeds one GNSS sample outcome into robot-local state (fix replaces,
-    // no-fix retains — see the class contract). Throws
-    // std::invalid_argument for a fix with non-finite position or
-    // heading: NaN/inf never silently become localization state.
-    void apply_sample(const std::optional<LocalizationEstimate>& sample);
+    // Feeds one GNSS sample outcome into robot-local state and reports the
+    // TRANSITION it caused (ADR-021): a fix REPLACES the retained estimate
+    // (estimated_at is the fix's own tick; the returned FixApplication
+    // measures what was given up — gap since the replaced fix, correction
+    // from the prior belief, and whether that prior was dead-reckoned);
+    // a no-fix RETAINS the previous estimate unchanged: an outage never
+    // erases knowledge, it ages it, and the miss is only COUNTED toward the
+    // next reacquisition. Before the first successful fix there is NO
+    // estimate — none is manufactured (no zero/default coordinate ever
+    // becomes belief). Throws std::invalid_argument for a fix with
+    // non-finite position or heading: NaN/inf never silently become
+    // localization state. A discarded return value is legitimate: the
+    // outcome is observability, not control.
+    FixApplication apply_sample(const std::optional<LocalizationEstimate>& sample);
+
+    // The exact non-finite check apply_sample enforces, exposed so callers
+    // that commit preparatory state before applying a fix (Robot's odometry
+    // propagation, #18/ADR-021) can validate FIRST: an invalid fix must
+    // change nothing at all.
+    static void validate_fix(const LocalizationEstimate& fix);
 
     void propagate(const OdometryIncrement& motion, const DeadReckoningConfig& config);
 
@@ -71,6 +110,9 @@ private:
     std::optional<LocalizationEstimate> estimate_;
     std::optional<common::Tick> last_fix_at_;
     bool dead_reckoned_ = false;
+    // Consecutive no-fix samples since the last fix (#18, ADR-021): pure
+    // bookkeeping that defines "reacquisition" — it never gates behavior.
+    std::uint64_t missed_samples_ = 0;
 };
 
 }  // namespace fleet::localization

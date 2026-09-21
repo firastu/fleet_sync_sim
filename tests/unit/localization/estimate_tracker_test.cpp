@@ -24,6 +24,94 @@ using fleet::map::Wgs84Coordinate;
     return LocalizationEstimate{Wgs84Coordinate{lat, lon}, heading, Tick{tick}};
 }
 
+// --- #18: reacquisition transition observability (ADR-021) -------------------
+
+TEST(LocalizationTrackerTest, FirstFixIsInitialAcquisitionNotReacquisition) {
+    LocalizationTracker tracker;
+    const auto outcome = tracker.apply_sample(fix_at(1000));
+    EXPECT_TRUE(outcome.fix);
+    EXPECT_FALSE(outcome.reacquisition);
+    EXPECT_FALSE(outcome.since_last_fix_ms.has_value());
+    EXPECT_FALSE(outcome.correction_distance_m.has_value());
+    EXPECT_FALSE(outcome.correction_heading_rad.has_value());
+    EXPECT_FALSE(outcome.prior_dead_reckoned);
+}
+
+TEST(LocalizationTrackerTest, MissesWithoutPriorEstimateDoNotManufactureReacquisition) {
+    LocalizationTracker tracker;
+    const auto missed = tracker.apply_sample(std::nullopt);
+    EXPECT_FALSE(missed.fix);
+    const auto outcome = tracker.apply_sample(fix_at(500));
+    EXPECT_TRUE(outcome.fix);
+    EXPECT_FALSE(outcome.reacquisition);  // no prior belief to reacquire against
+    EXPECT_FALSE(outcome.since_last_fix_ms.has_value());
+    EXPECT_FALSE(outcome.correction_distance_m.has_value());
+}
+
+TEST(LocalizationTrackerTest, MissedThenFixIsReacquisitionWithFrozenCorrection) {
+    LocalizationTracker tracker;
+    (void)tracker.apply_sample(fix_at(0, 52.370, 9.730));
+    const auto missed = tracker.apply_sample(std::nullopt);
+    EXPECT_FALSE(missed.fix);
+
+    // A fix 0.0002 deg north (~22.239 m) after the frozen prior.
+    const auto outcome = tracker.apply_sample(fix_at(500, 52.3702, 9.730));
+    EXPECT_TRUE(outcome.fix);
+    EXPECT_TRUE(outcome.reacquisition);
+    ASSERT_TRUE(outcome.since_last_fix_ms.has_value());
+    EXPECT_EQ(*outcome.since_last_fix_ms, std::uint64_t{500});
+    ASSERT_TRUE(outcome.correction_distance_m.has_value());
+    EXPECT_NEAR(*outcome.correction_distance_m, 22.239016, 1e-3);
+    ASSERT_TRUE(outcome.correction_heading_rad.has_value());
+    EXPECT_NEAR(*outcome.correction_heading_rad, 0.0, 1e-9);  // due north
+    EXPECT_FALSE(outcome.prior_dead_reckoned);  // frozen (#16), not drifted (#17)
+}
+
+TEST(LocalizationTrackerTest, ConsecutiveFixesAreNotReacquisitionsAndMissesReset) {
+    LocalizationTracker tracker;
+    (void)tracker.apply_sample(fix_at(0));
+    (void)tracker.apply_sample(std::nullopt);
+    EXPECT_TRUE(tracker.apply_sample(fix_at(250)).reacquisition);
+
+    // A fix immediately after a fix is NOT a reacquisition...
+    const auto immediate = tracker.apply_sample(fix_at(500));
+    EXPECT_TRUE(immediate.fix);
+    EXPECT_FALSE(immediate.reacquisition);
+    // ...and the miss counter restarts with each fix.
+    (void)tracker.apply_sample(std::nullopt);
+    (void)tracker.apply_sample(std::nullopt);
+    EXPECT_TRUE(tracker.apply_sample(fix_at(1000)).reacquisition);
+}
+
+TEST(LocalizationTrackerTest, StationaryReacquisitionHasZeroCorrectionAndNoBearing) {
+    LocalizationTracker tracker;
+    (void)tracker.apply_sample(fix_at(0, 52.370, 9.730));
+    (void)tracker.apply_sample(std::nullopt);
+    const auto outcome = tracker.apply_sample(fix_at(1000, 52.370, 9.730));
+    EXPECT_TRUE(outcome.reacquisition);
+    ASSERT_TRUE(outcome.correction_distance_m.has_value());
+    EXPECT_DOUBLE_EQ(*outcome.correction_distance_m, 0.0);
+    EXPECT_FALSE(outcome.correction_heading_rad.has_value());  // undefined at 0 m
+    ASSERT_TRUE(outcome.since_last_fix_ms.has_value());
+    EXPECT_EQ(*outcome.since_last_fix_ms, std::uint64_t{1000});
+}
+
+TEST(LocalizationTrackerTest, DeadReckonedPriorFlagsTheReacquisition) {
+    LocalizationTracker tracker;
+    (void)tracker.apply_sample(fix_at(0, 52.370, 9.730, 0.0));
+    tracker.propagate({10.0, 0.0, Tick{0}, Tick{1000}}, {});  // zero bias config
+    ASSERT_TRUE(tracker.dead_reckoned());
+    (void)tracker.apply_sample(std::nullopt);
+
+    // The propagated belief sits ~10 m north (zero bias config => exact).
+    const double propagated_lat = 52.370 + 10.0 / 111195.08023406387;
+    const auto outcome = tracker.apply_sample(fix_at(1500, propagated_lat, 9.730, 0.0));
+    EXPECT_TRUE(outcome.reacquisition);
+    EXPECT_TRUE(outcome.prior_dead_reckoned);  // the #17 contrast: drifted prior
+    ASSERT_TRUE(outcome.correction_distance_m.has_value());
+    EXPECT_NEAR(*outcome.correction_distance_m, 0.0, 1e-6);  // perfect DR => ~zero jump
+}
+
 TEST(LocalizationTrackerTest, NoEstimateBeforeFirstFix) {
     LocalizationTracker tracker;
     EXPECT_FALSE(tracker.estimate().has_value());

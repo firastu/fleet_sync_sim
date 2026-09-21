@@ -259,7 +259,7 @@ TEST_F(TruthPoseTest, DeadReckoningFollowsBentPolylineInBothDirectionsWithoutSna
             robot.configure_dead_reckoning({scale_error, 0.0});
             ASSERT_TRUE(robot.begin_transit(Tick{0}, 1000));
             const auto initial = truth_pose(bent_.base, robot.state(), 0.0, Tick{0});
-            robot.apply_gnss_sample(fleet::localization::LocalizationEstimate{
+            (void)robot.apply_gnss_sample(fleet::localization::LocalizationEstimate{
                 initial.position, initial.heading_rad, Tick{0}});
             const auto final = truth_pose(bent_.base, robot.state(), 0.0, Tick{1000});
             EXPECT_TRUE(robot.complete_transit());

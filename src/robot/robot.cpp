@@ -185,16 +185,20 @@ bool Robot::complete_transit() {
     return state_.mission_complete;
 }
 
-void Robot::apply_gnss_sample(
+localization::FixApplication Robot::apply_gnss_sample(
     const std::optional<localization::LocalizationEstimate>& sample) {
     if (sample) {
-        auto next = localization_;
-        next.apply_sample(sample);
+        // ADR-019 atomicity + ADR-021 baseline: validate the fix FIRST (an
+        // invalid fix must change nothing at all, including the odometry
+        // baseline), then propagate robot-local belief up to the fix's
+        // represented time, then let the fix replace it. The committed end
+        // state is exactly the pre-#18 contract — fix replaces, baselines
+        // advanced — but the returned FixApplication measures the
+        // correction from the FULLY-PROPAGATED prior belief.
+        localization::LocalizationTracker::validate_fix(*sample);
         advance_localization(sample->estimated_at);
-        localization_ = next;
-        return;
     }
-    localization_.apply_sample(sample);
+    return localization_.apply_sample(sample);
 }
 
 const localization::LocalizationTracker& Robot::localization() const noexcept {

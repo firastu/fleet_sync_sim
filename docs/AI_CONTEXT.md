@@ -33,15 +33,20 @@ M3 completed:
 #14 localization boundary       ADR-016
 #15 deterministic noisy GNSS    ADR-017
 #16 outage + stale estimates    ADR-018
+#17 dead reckoning / drift      ADR-019  (owner-reviewed 2026-09-21)
 ```
 
 Current next step:
 
 ```text
-#17 deterministic dead reckoning / drift: implemented, awaiting review (ADR-019)
+#18 GNSS reacquisition observability: implemented, awaiting review (ADR-021)
 ```
 
-Do not skip ahead without review.
+After the #18 review: review the accumulated measurement/failure semantics,
+then decide whether estimator architecture is justified (its own ADR).
+
+Note: Isaac Sim stage 1 (read-only replay, ADR-020) lives on the
+`feat/isaac-stage1-replay` branch, off master; master does not carry it.
 
 ---
 
@@ -383,7 +388,8 @@ fleet::geojson
     outward-only debug/export adapters
 
 fleet::localization
-    pose, GNSS models, estimate retention, localization boundary
+    pose, GNSS models, estimate retention, reacquisition observability,
+    localization boundary
 ```
 
 Apps are adapters around these modules rather than owners of domain logic.

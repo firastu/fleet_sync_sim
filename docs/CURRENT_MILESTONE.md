@@ -133,35 +133,39 @@ estimate retained unchanged; age = now - estimated_at grows
 
 ### #17 — Deterministic dead reckoning / drift
 
-**Implemented; awaiting review.** Contract and limitations are recorded in
+**COMPLETE — reviewed by the owner on 2026-09-21.** Contract and limitations
+are recorded in
 [ADR-019](design_decisions/ADR-019-deterministic-dead-reckoning.md).
 The opt-in implementation uses robot-owned graph motion, fixed distance/heading
-bias, last-fix age, and outward-only position-error diagnostics. #18 is not
-promoted until this step has been reviewed.
+bias, last-fix age, and outward-only position-error diagnostics.
 
-Advance robot-local estimated state during a GNSS outage from the
-robot's OWN motion, with accumulating error — the frozen #16 estimate
-is the baseline it diverges from.
+### #18 — GNSS reacquisition behavior
 
-The work should cover:
+**Implemented; awaiting review.** Contract recorded in
+[ADR-021](design_decisions/ADR-021-gnss-reacquisition-observability.md).
 
-* a deterministic motion-propagation model behind the localization
-  boundary (no oracle truth: graph movement knowledge the robot itself
-  holds, or an explicit odometry seam);
-* error that accumulates deterministically (same scenario + seed =>
-  same drift);
-* the conceptual contrast locked by tests:
+A fix returning after an outage (or after drifted dead reckoning) already
+replaces belief per ADR-018. #18 makes that TRANSITION a first-class
+observable without changing what it does:
 
-```text
-#16 outage:  estimate frozen, estimated_at unchanged, age grows
-#17 drift:   estimated state advances, error grows vs truth
-```
+* one `FixApplication` outcome per applied sample: fix/no-fix, reacquisition
+  (first fix after at least one missed sample, with a prior estimate), gap
+  since the replaced fix, correction distance and bearing from the
+  fully-propagated prior belief, and whether that prior was dead-reckoned;
+* `gnss_sample` trace fields on reacquisition samples only
+  (`reacquired`, `prior_source`, `since_last_fix_ms`, `correction_m`,
+  `correction_heading_rad`) — existing localization fixtures never
+  reacquire, so their traces are unchanged;
+* the replace contract itself is unchanged: no rejection gate, no fusion,
+  no covariance — the estimator decision stays gated behind the
+  post-#18 review;
+* a `gnss_reacquisition.json` fixture contrasting drifted and frozen priors.
 
-* trace/console observability of the divergence.
+After #18: review the accumulated measurement/failure semantics, then decide
+whether estimator architecture is justified (its own ADR).
 
-Do not add an estimator (filter) to implement #17; dead reckoning is a
-measurement/propagation model, not a fusion algorithm. An estimator
-decision remains gated behind the #18 review.
+Do not add an estimator, outlier rejection or uncertainty representation as
+part of #18.
 
 ---
 

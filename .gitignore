@@ -29,3 +29,5 @@ research/
 
 
 .ai/
+
+*.pyc

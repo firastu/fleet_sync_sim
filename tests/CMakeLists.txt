@@ -34,6 +34,7 @@ add_executable(fleet_unit_tests
   unit/scenario/scenario_sensing_test.cpp
   unit/scenario/scenario_stepping_test.cpp
   unit/scenario/scenario_localization_test.cpp
+  unit/scenario/scenario_reacquisition_test.cpp
   unit/world/world_test.cpp
   unit/world/truth_pose_test.cpp
   unit/osm/osm_pbf_importer_test.cpp

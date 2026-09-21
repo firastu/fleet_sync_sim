@@ -145,10 +145,13 @@ public:
     // know where the sample came from (no GroundTruthPose, no sensor
     // model, no world access — the runner wiring feeds outcomes in).
 
-    // Feeds one GNSS sample outcome into robot-local state: a fix
-    // replaces the retained estimate; nullopt (no fix) retains it — an
-    // outage ages knowledge, it never erases it.
-    void apply_gnss_sample(const std::optional<localization::LocalizationEstimate>& sample);
+    // Feeds one GNSS sample outcome into robot-local state and reports the
+    // transition (ADR-021): a fix replaces the retained estimate (after
+    // dead reckoning has propagated belief up to the fix's represented
+    // time, so the reported correction is the honest belief jump); a
+    // no-fix retains it — an outage ages knowledge, it never erases it.
+    [[nodiscard]] localization::FixApplication apply_gnss_sample(
+        const std::optional<localization::LocalizationEstimate>& sample);
 
     void configure_dead_reckoning(localization::DeadReckoningConfig config);
     void advance_localization(common::Tick now);
