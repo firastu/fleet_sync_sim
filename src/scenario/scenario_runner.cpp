@@ -499,7 +499,10 @@ void ScenarioRunner::sample_gnss(std::size_t index) {
 
     // Truth on the simulation side only (ADR-016/018): derived from the
     // movement state and map geometry, never from the robot's belief.
-    const localization::GroundTruthPose truth = world::truth_pose(base_, robot.state(),rest_heading_rad_[index], now);
+    // At rest this carries the runner-maintained physical orientation
+    // (never a stationary reset); in transit it is the live travel pose.
+    const localization::GroundTruthPose truth =
+        world::truth_pose(base_, robot.state(), rest_heading_rad_[index], now);
 
     // The measurement boundary: the ACTIVE model decides fix or no fix.
     // An outage is UnavailableGnss sitting in gnss_models_[index] — no

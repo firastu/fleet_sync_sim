@@ -361,6 +361,53 @@ TEST_F(ScenarioLocalizationTest,
             << "sample index " << i;
     }
 }
+TEST_F(ScenarioLocalizationTest, ArrivalDoesNotResetOrientationToNorth) {
+    // Orientation truth (ADR-018): a robot completing A->B keeps facing
+    // its arrival direction (east ~pi/2) at rest — arrival is never a
+    // north reset. Fixes during transit and after arrival share the
+    // final segment's bearing; only the explicit INITIAL orientation
+    // (before any movement) is north.
+    VectorTraceSink sink;
+    Scenario scenario = make_scenario(true, localization_settings(1000, perfect()), {}, 3000);
+    scenario.robots.front().mission.goal = grid_.node("B");  // arrive and rest
+    ScenarioRunner runner(grid_.base, scenario, 42);
+    runner.add_sink(sink);
+    runner.run_to_completion();
+    const auto samples = sink.all_of_type("gnss_sample");
+    ASSERT_EQ(samples.size(), 4U);  // 0, 1000, 2000, 3000
+    // t=0: departed A->B (movement runs before sampling), heading east.
+    const std::string transit_heading = field(*samples[0], "heading").value();
+    EXPECT_NE(transit_heading, "0.000000");
+    // t>=1000: at rest at B after the arrival at 1000 — the heading
+    // CARRIES OVER (final-segment bearing), never resets to north.
+    for (std::size_t i = 1; i < samples.size(); ++i) {
+        EXPECT_EQ(field(*samples[i], "heading"), transit_heading) << "sample " << i;
+        EXPECT_NE(field(*samples[i], "heading"), "0.000000") << "sample " << i;
+    }
+}
+
+TEST_F(ScenarioLocalizationTest, ReverseTraversalRestOrientationIsWest) {
+    // The same contract on a reverse traversal (B->A): the robot faces
+    // WEST (~3*pi/2) while traveling and keeps facing west at rest.
+    VectorTraceSink sink;
+    Scenario scenario = make_scenario(true, localization_settings(1000, perfect()), {}, 3000);
+    scenario.robots.front().mission.start = grid_.node("B");
+    scenario.robots.front().mission.goal = grid_.node("A");
+    ScenarioRunner runner(grid_.base, scenario, 42);
+    runner.add_sink(sink);
+    runner.run_to_completion();
+    const auto samples = sink.all_of_type("gnss_sample");
+    ASSERT_EQ(samples.size(), 4U);
+    const std::string transit_heading = field(*samples[0], "heading").value();
+    // West is ~3*pi/2 = 4.712... — formatted with 6 decimals.
+    EXPECT_NE(transit_heading, "0.000000");
+    EXPECT_NE(transit_heading, "1.570783");  // not east
+    for (std::size_t i = 1; i < samples.size(); ++i) {
+        EXPECT_EQ(field(*samples[i], "heading"), transit_heading) << "sample " << i;
+        EXPECT_NE(field(*samples[i], "heading"), "0.000000") << "sample " << i;
+    }
+}
+
 TEST_F(ScenarioLocalizationTest, NoFixBeforeFirstFixTracesNoEstimateFields) {
     VectorTraceSink sink;
     ScenarioRunner runner(
