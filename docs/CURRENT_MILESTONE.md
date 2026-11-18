@@ -116,11 +116,9 @@ fixtures stay byte-identical.
 
 ---
 
-## Current objective
-
 ### #20 — Free-space terrain motion (scripted truth) — ADR-023
 
-**Implemented; awaiting review.** Contract recorded in
+**Merged to master (PR #3).** Contract recorded in
 [ADR-023](design_decisions/ADR-023-terrain-domain-motion.md).
 
 * a second scenario domain: files declaring `"domain": "terrain"` load with
@@ -147,23 +145,32 @@ fixtures stay byte-identical.
 
 ---
 
+## Current objective
+
+### #21 — Relative-motion and altitude sensors — ADR-024
+
+**Implemented; awaiting review.** Contract recorded in
+[ADR-024](design_decisions/ADR-024-terrain-domain-sensors.md).
+
+* `localization::TerrainSensors`, one per robot with sensors: odometry
+  (scale error, noise growing with sqrt(distance)), gyro (random-walking
+  bias, angle random walk), barometric altitude (drifting bias, white noise)
+  and, for air platforms, a downward rangefinder (noise, maximum range,
+  dropouts);
+* the measurement boundary: the motion step reports its true increment,
+  the runner builds a `TerrainMotionTruth`, and only the resulting
+  `TerrainSensorFrame` reaches `TerrainRobot::receive`;
+* one RNG stream per robot and sensor kind (fixed domains), draw consumption
+  fixed by configuration alone; zero-noise sensors consume nothing; the
+  ADR-017 sampler is shared, with noisy GNSS output bit-identical;
+* opt-in per robot (`sensors` block); `sensor_frame` trace events carry
+  measurements only; `scenarios/terrain_sensors.json` adds sensors to the
+  terrain-hills run;
+* sensor-free scenarios, including `terrain_hills`, are byte-identical.
+
+---
+
 ## Planned M4 sequence
-
-### #21 — Relative-motion and altitude sensors — own ADR
-
-Deterministic noisy models, each on its own per-robot RNG stream derived from
-the resolved seed, with fixed draw consumption; zero-noise configurations
-consume no draws:
-
-* velocity/odometry sensor with scale error and noise — a stand-in for wheel
-  odometry, visual odometry or optical flow; slip and image texture are not
-  modeled;
-* gyro heading with bias random walk;
-* barometric altitude with drifting bias and noise;
-* downward rangefinder for air platforms: range from truth altitude to the
-  truth terrain surface, with noise, maximum range and dropouts.
-
-Sensors read truth pose and truth terrain; robots receive only sensor outputs.
 
 ### #22 — Terrain-referenced estimator — own ADR (the estimator decision)
 

@@ -23,8 +23,8 @@ using TraceValue = std::variant<std::string, std::int64_t, double, bool>;
 //   - `type` names are stable ("scenario", "seed", "route", "link_state",
 //     "observation", "send", "delivery", "reconcile", "resynchronize",
 //     "departure", "arrival", "mission_complete", "world_edge",
-//     "gnss_sample", "gnss_model"; terrain domain, ADR-023: "terrain",
-//     "terrain_pose", "waypoint_reached");
+//     "gnss_sample", "gnss_model"; terrain domain, ADR-023/024: "terrain",
+//     "terrain_pose", "waypoint_reached", "sensor_frame");
 //   - fields appear in insertion order — deterministic by construction;
 //   - values are deterministic functions of (scenario, resolved seed):
 //     no wall-clock timestamps, no pointer addresses, no unordered-container

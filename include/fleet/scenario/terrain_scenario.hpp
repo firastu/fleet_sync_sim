@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "fleet/common/ids.hpp"
+#include "fleet/localization/terrain_sensors.hpp"
 #include "fleet/map/elevation_grid.hpp"
 #include "fleet/map/geometry.hpp"
 #include "fleet/world/terrain_motion.hpp"
@@ -22,6 +23,7 @@ struct TerrainScenarioRobot {
     map::Wgs84Coordinate start{};
     double start_heading_rad = 0.0;
     std::vector<map::Wgs84Coordinate> waypoints;
+    localization::TerrainSensorConfig sensors{};  // opt-in (ADR-024); empty = no sensors
 };
 
 // Declarative description of one terrain-domain run (ADR-023, M4 #20).
@@ -52,6 +54,8 @@ struct TerrainScenario {
 // An hgt file path is relative to the scenario file's directory (or to
 // `base_directory` for load_string) unless absolute. "robot_map" is "truth"
 // (default) or another source, which must use the same vertical datum.
+// A robot's optional "sensors" object enables any of "odometry", "gyro",
+// "baro" and "rangefinder" (air platforms only), ADR-024.
 class TerrainScenarioLoader {
 public:
     [[nodiscard]] static TerrainScenario load(const std::filesystem::path& file);

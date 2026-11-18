@@ -26,4 +26,16 @@ TerrainRobot::TerrainRobot(common::RobotId id, TerrainMission mission,
     }
 }
 
+void TerrainRobot::receive(const localization::TerrainSensorFrame& frame) {
+    if (!(frame.at > frame.from)) {
+        throw std::invalid_argument("TerrainRobot: a sensor frame must end after it starts");
+    }
+    if (last_frame_ && frame.from < last_frame_->at) {
+        throw std::invalid_argument(
+            "TerrainRobot: a sensor frame must not start before the previous one ended");
+    }
+    last_frame_ = frame;
+    ++frames_received_;
+}
+
 }  // namespace fleet::robot

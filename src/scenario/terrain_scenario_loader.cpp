@@ -204,6 +204,77 @@ void reject_unknown_fields(const json& object, std::string_view where,
     }
 }
 
+// One sensor block: every field optional with default 0 unless `required`.
+[[nodiscard]] double sensor_number(const json& block, const char* key, std::string_view where,
+                                   double scale = 1.0) {
+    return optional_number(block, key, where).value_or(0.0) * scale;
+}
+
+// The robot's opt-in "sensors" object (ADR-024). Files use degrees; the
+// sensor models use radians.
+[[nodiscard]] localization::TerrainSensorConfig parse_sensors(const json& value,
+                                                              const std::string& where,
+                                                              world::TerrainPlatform platform) {
+    require_object(value, where);
+    reject_unknown_fields(value, where, {"odometry", "gyro", "baro", "rangefinder"});
+    localization::TerrainSensorConfig sensors;
+    if (const auto entry = value.find("odometry"); entry != value.end()) {
+        const std::string block = where + ".odometry";
+        require_object(*entry, block);
+        reject_unknown_fields(*entry, block, {"scale_error", "noise_m_per_sqrt_m"});
+        sensors.odometry = localization::OdometrySensorConfig{
+            sensor_number(*entry, "scale_error", block),
+            sensor_number(*entry, "noise_m_per_sqrt_m", block)};
+    }
+    if (const auto entry = value.find("gyro"); entry != value.end()) {
+        const std::string block = where + ".gyro";
+        require_object(*entry, block);
+        reject_unknown_fields(*entry, block,
+                              {"initial_bias_deg_per_s", "bias_walk_deg_per_s_per_sqrt_s",
+                               "angle_random_walk_deg_per_sqrt_s"});
+        sensors.gyro = localization::GyroSensorConfig{
+            sensor_number(*entry, "initial_bias_deg_per_s", block, kDegToRad),
+            sensor_number(*entry, "bias_walk_deg_per_s_per_sqrt_s", block, kDegToRad),
+            sensor_number(*entry, "angle_random_walk_deg_per_sqrt_s", block, kDegToRad)};
+    }
+    if (const auto entry = value.find("baro"); entry != value.end()) {
+        const std::string block = where + ".baro";
+        require_object(*entry, block);
+        reject_unknown_fields(*entry, block,
+                              {"initial_bias_m", "bias_walk_m_per_sqrt_s", "noise_sigma_m"});
+        sensors.baro = localization::BaroSensorConfig{
+            sensor_number(*entry, "initial_bias_m", block),
+            sensor_number(*entry, "bias_walk_m_per_sqrt_s", block),
+            sensor_number(*entry, "noise_sigma_m", block)};
+    }
+    if (const auto entry = value.find("rangefinder"); entry != value.end()) {
+        const std::string block = where + ".rangefinder";
+        if (platform != world::TerrainPlatform::Air) {
+            throw load_error(std::format(
+                "{}: a downward rangefinder needs an air platform", block));
+        }
+        require_object(*entry, block);
+        reject_unknown_fields(*entry, block, {"max_range_m", "noise_sigma_m", "dropout_ppm"});
+        localization::RangefinderSensorConfig rangefinder;
+        rangefinder.max_range_m = require_number(*entry, "max_range_m", block);
+        rangefinder.noise_sigma_m = sensor_number(*entry, "noise_sigma_m", block);
+        if (const auto dropout = entry->find("dropout_ppm"); dropout != entry->end()) {
+            if (!dropout->is_number_unsigned() || dropout->get<std::uint64_t>() > 1'000'000) {
+                throw load_error(std::format(
+                    "{}: 'dropout_ppm' must be an integer within [0, 1000000]", block));
+            }
+            rangefinder.dropout_ppm = static_cast<std::uint32_t>(dropout->get<std::uint64_t>());
+        }
+        sensors.rangefinder = rangefinder;
+    }
+    try {
+        sensors.validate();
+    } catch (const std::invalid_argument& error) {
+        throw load_error(std::format("{}: {}", where, error.what()));
+    }
+    return sensors;
+}
+
 [[nodiscard]] TerrainScenarioRobot parse_robot(const json& value, std::size_t index,
                                                std::set<std::string>& names,
                                                std::set<std::uint64_t>& ids) {
@@ -215,7 +286,7 @@ void reject_unknown_fields(const json& object, std::string_view where,
     reject_unknown_fields(value, where,
                           {"name", "id", "platform", "speed_mps", "max_turn_rate_deg_per_s",
                            "arrival_radius_m", "mount_height_m", "altitude_m", "start",
-                           "waypoints"});
+                           "waypoints", "sensors"});
     if (!names.insert(robot.name).second) {
         throw load_error(std::format("duplicate robot name '{}'", robot.name));
     }
@@ -270,6 +341,9 @@ void reject_unknown_fields(const json& object, std::string_view where,
     for (std::size_t point = 0; point < waypoints.size(); ++point) {
         robot.waypoints.push_back(
             parse_coordinate(waypoints[point], std::format("{} waypoints[{}]", where, point)));
+    }
+    if (const auto sensors = value.find("sensors"); sensors != value.end()) {
+        robot.sensors = parse_sensors(*sensors, where + " sensors", robot.motion.platform);
     }
     return robot;
 }

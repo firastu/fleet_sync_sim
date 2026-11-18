@@ -156,6 +156,19 @@ TEST(TerrainMotionTest, MovesAtConstantSpeedTowardTheWaypoint) {
     EXPECT_NEAR(motion.state().heading_rad, kPi / 2.0, 1e-3);
 }
 
+TEST(TerrainMotionTest, StepOutcomeReportsTheTrueIncrement) {
+    TerrainMotion motion{ground(), {{45.95, 7.0}}, terrain(), kStart, 0.0, Tick{0}};
+    const TerrainStepOutcome turning = motion.step(1000);
+    EXPECT_EQ(turning.distance_m, 10.0);
+    EXPECT_EQ(turning.turn_rad, 0.5);  // the full clockwise budget
+
+    TerrainMotion parked{ground(), {{46.0001, 7.0}}, terrain(), kStart, 0.0, Tick{0}};
+    const TerrainStepOutcome arrived = parked.step(1000);  // reached before moving
+    EXPECT_TRUE(arrived.mission_completed);
+    EXPECT_EQ(arrived.distance_m, 0.0);
+    EXPECT_EQ(arrived.turn_rad, 0.0);
+}
+
 TEST(TerrainMotionTest, TurnRateIsBoundedAndExactlyBehindTurnsClockwise) {
     // Heading north with the waypoint due south: a half turn at 0.5 rad/s.
     TerrainMotion motion{ground(), {{45.95, 7.0}}, terrain(), kStart, 0.0, Tick{0}};

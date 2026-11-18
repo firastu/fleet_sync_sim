@@ -56,10 +56,13 @@ struct TerrainBodyState {
     common::Tick at{};
 };
 
-// What one step did, for observability.
+// What one step did: observability, and the true motion increment that
+// sensor models measure (ADR-024).
 struct TerrainStepOutcome {
     std::vector<std::size_t> reached_waypoints;  // reached in this step, ascending
     bool mission_completed = false;              // the last waypoint was reached in this step
+    double distance_m = 0.0;  // horizontal distance moved (0 when parked)
+    double turn_rad = 0.0;    // heading change applied, clockwise positive (0 when parked)
 };
 
 // Scripted truth motion of one body along a waypoint list (ADR-023, M4 #20).

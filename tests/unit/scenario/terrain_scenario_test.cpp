@@ -7,12 +7,15 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <format>
 #include <functional>
+#include <map>
 #include <numbers>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 #include "fleet/dem/hgt_reader.hpp"
@@ -350,6 +353,141 @@ TEST(TerrainScenarioRunnerTest, LeavingTheTruthTerrainFailsTheRunNamingTheRobot)
     const std::string message = error_message([&] { (void)runner.run_to_completion(); });
     EXPECT_NE(message.find("robot 'rover'"), std::string::npos) << message;
     EXPECT_NE(message.find("outside the truth terrain coverage"), std::string::npos) << message;
+}
+
+constexpr const char* kSensorScenario = "scenarios/terrain_sensors.json";
+
+TEST(TerrainScenarioLoaderTest, LoadsSensorConfiguration) {
+    const TerrainScenario scenario = TerrainScenarioLoader::load(kSensorScenario);
+    ASSERT_EQ(scenario.robots.size(), 2U);
+    const auto& rover = scenario.robots[0].sensors;
+    ASSERT_TRUE(rover.odometry && rover.gyro && rover.baro);
+    EXPECT_FALSE(rover.rangefinder.has_value());
+    EXPECT_EQ(rover.odometry->scale_error, 0.02);
+    EXPECT_DOUBLE_EQ(rover.gyro->initial_bias_rad_per_s, 0.05 * std::numbers::pi / 180.0);
+    EXPECT_EQ(rover.baro->initial_bias_m, 3.0);
+    const auto& drone = scenario.robots[1].sensors;
+    ASSERT_TRUE(drone.rangefinder.has_value());
+    EXPECT_EQ(drone.rangefinder->max_range_m, 400.0);
+    EXPECT_EQ(drone.rangefinder->dropout_ppm, 20000U);
+    // The sensor-free fixture stays sensor-free.
+    EXPECT_FALSE(TerrainScenarioLoader::load(kCommitted).robots[0].sensors.any());
+}
+
+TEST(TerrainScenarioLoaderTest, RejectsInvalidSensorBlocks) {
+    const auto rejects = [](const std::string& sensors, const std::string& expected,
+                            const std::string& platform = "\"ground\"") {
+        const std::string extra =
+            platform == "\"air\"" ? " \"altitude_m\": 900, \"sensors\": " + sensors + ","
+                                  : " \"sensors\": " + sensors + ",";
+        const std::string message = error_message([&] {
+            (void)TerrainScenarioLoader::load_string(
+                scenario_json(extra, "", "\"truth\"", platform));
+        });
+        EXPECT_NE(message.find(expected), std::string::npos)
+            << "expected '" << expected << "', got '" << message << "'";
+    };
+    rejects(R"({"rangefinder": {"max_range_m": 100}})", "needs an air platform");
+    rejects(R"({"lidar": {}})", "unknown field 'lidar'");
+    rejects(R"({"gyro": {"bias_deg": 1}})", "unknown field 'bias_deg'");
+    rejects(R"({"baro": {"noise_sigma_m": -1}})", "must be >= 0");
+    rejects(R"({"odometry": {"scale_error": -1}})", "scale_error must be > -1");
+    rejects(R"({"rangefinder": {}})", "missing field 'max_range_m'", "\"air\"");
+    rejects(R"({"rangefinder": {"max_range_m": 100, "dropout_ppm": 1000001}})",
+            "'dropout_ppm' must be an integer", "\"air\"");
+    EXPECT_NO_THROW((void)TerrainScenarioLoader::load_string(scenario_json(
+        R"( "altitude_m": 900, "sensors": {"rangefinder": {"max_range_m": 1000}},)", "",
+        "\"truth\"", "\"air\"")));
+}
+
+TEST(TerrainScenarioRunnerTest, SensorFramesReachTheRobotAndTheTrace) {
+    TerrainScenarioRunner runner{TerrainScenarioLoader::load(kSensorScenario), 1};
+    VectorTraceSink sink;
+    runner.add_sink(sink);
+    (void)runner.run_to_completion();
+
+    std::map<std::string, std::uint64_t> frames;
+    std::map<std::string, std::uint64_t> previous_at;
+    std::map<std::string, std::string> last_baro;
+    std::size_t dropouts = 0;
+    for (const TraceEvent& event : sink.events) {
+        if (event.type != "sensor_frame") {
+            continue;
+        }
+        const std::string& robot = event.source;  // measurements belong to the robot
+        ++frames[robot];
+        EXPECT_EQ(field(event, "from"), std::to_string(previous_at[robot])) << robot;
+        previous_at[robot] = event.at.value;
+        EXPECT_EQ(field(event, "position"), "<missing>");  // no truth in a frame
+        EXPECT_NE(field(event, "odometry_m"), "<missing>");
+        EXPECT_NE(field(event, "gyro_turn_rad"), "<missing>");
+        last_baro[robot] = field(event, "baro_m");
+        if (robot == "drone") {
+            const std::string range = field(event, "range");
+            EXPECT_TRUE(range == "return" || range == "dropout") << range;
+            EXPECT_EQ(field(event, "range_m") != "<missing>", range == "return");
+            dropouts += range == "dropout" ? 1 : 0;
+        } else {
+            EXPECT_EQ(field(event, "range"), "<missing>");
+        }
+    }
+    for (const std::string robot : {"rover", "drone"}) {
+        EXPECT_GT(frames[robot], 0U);
+        EXPECT_EQ(runner.robot(robot).frames_received(), frames[robot]);
+        ASSERT_TRUE(runner.robot(robot).last_frame().has_value());
+        EXPECT_EQ(runner.robot(robot).last_frame()->at.value, previous_at[robot]);
+        EXPECT_EQ(std::format("{:.6f}", *runner.robot(robot).last_frame()->baro_altitude_m),
+                  last_baro[robot]);
+        ASSERT_NE(runner.sensors(robot), nullptr);
+    }
+    EXPECT_GT(dropouts, 0U);                // 2% dropout over ~490 frames
+    EXPECT_LT(dropouts, frames["drone"] / 10);
+}
+
+TEST(TerrainScenarioRunnerTest, TheSeedChangesMeasurementsButNotTruth) {
+    const auto lines_of = [](std::uint64_t seed) {
+        TerrainScenarioRunner runner{TerrainScenarioLoader::load(kSensorScenario), seed};
+        VectorTraceSink sink;
+        runner.add_sink(sink);
+        (void)runner.run_to_completion();
+        std::vector<std::string> truth;
+        std::vector<std::string> measured;
+        for (const TraceEvent& event : sink.events) {
+            std::string line = std::to_string(event.at.value) + event.source + event.type;
+            for (const auto& [key, value] : event.fields) {
+                line += " " + key + "=" + fleet::scenario::format_trace_value(value);
+            }
+            (event.type == "sensor_frame" ? measured : truth).push_back(line);
+        }
+        truth.erase(truth.begin() + 1);  // the "seed" event itself
+        return std::pair{truth, measured};
+    };
+    const auto [truth_a, measured_a] = lines_of(1);
+    const auto [truth_b, measured_b] = lines_of(2);
+    EXPECT_EQ(truth_a, truth_b);
+    EXPECT_EQ(measured_a.size(), measured_b.size());
+    EXPECT_NE(measured_a, measured_b);
+    EXPECT_EQ(lines_of(1).second, measured_a);
+}
+
+TEST(TerrainScenarioRunnerTest, SensorFreeScenariosHaveNoSensorsOrFrames) {
+    TerrainScenarioRunner runner{TerrainScenarioLoader::load(kCommitted), 1};
+    VectorTraceSink sink;
+    runner.add_sink(sink);
+    (void)runner.run_to_completion();
+    EXPECT_EQ(runner.sensors("rover"), nullptr);
+    EXPECT_EQ(runner.robot("rover").frames_received(), 0U);
+    for (const TraceEvent& event : sink.events) {
+        EXPECT_NE(event.type, "sensor_frame");
+    }
+
+    // The runner rejects a rangefinder on a ground robot even when the
+    // scenario was built without the loader.
+    TerrainScenario ground = TerrainScenarioLoader::load(kCommitted);
+    ground.robots[0].sensors.rangefinder = fleet::localization::RangefinderSensorConfig{100.0};
+    EXPECT_NE(error_message([&] { TerrainScenarioRunner rejected{ground, 0}; })
+                  .find("needs an air platform"),
+              std::string::npos);
 }
 
 }  // namespace
