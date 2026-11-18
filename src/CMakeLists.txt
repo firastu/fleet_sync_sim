@@ -23,11 +23,13 @@ target_include_directories(fleet_common INTERFACE
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 
 # Immutable map core: graph, base map, dynamic overlay, composed view,
-# delta reconciliation, geographic geometry side (ADR-012).
+# delta reconciliation, geographic geometry side (ADR-012), terrain
+# elevation grids (ADR-022).
 add_library(fleet_map STATIC
   map/graph.cpp
   map/base_map.cpp
   map/geometry.cpp
+  map/elevation_grid.cpp
   map/dynamic_overlay.cpp
   map/map_view.cpp
   map/map_reconciler.cpp)
@@ -141,6 +143,15 @@ target_link_libraries(fleet_osm_import
   PUBLIC fleet::map
   PRIVATE ZLIB::ZLIB)
 fleet_target_warnings(fleet_osm_import)
+
+# Elevation (DEM) import: SRTM .hgt tiles -> map::ElevationGrid (ADR-022,
+# M4 #19). A separate importer target like fleet_osm_import, so the map core
+# never knows file formats. The HGT format needs no third-party dependency.
+add_library(fleet_dem_import STATIC
+  dem/hgt_reader.cpp)
+add_library(fleet::dem_import ALIAS fleet_dem_import)
+target_link_libraries(fleet_dem_import PUBLIC fleet::map)
+fleet_target_warnings(fleet_dem_import)
 
 # Scenario runner + deterministic structured trace: wiring and scheduling
 # over existing public APIs only (ADR-009). The JSON parser is PRIVATE to

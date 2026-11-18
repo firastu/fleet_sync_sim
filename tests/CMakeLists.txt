@@ -17,6 +17,7 @@ add_executable(fleet_unit_tests
   unit/map/graph_test.cpp
   unit/map/base_map_test.cpp
   unit/map/geometry_test.cpp
+  unit/map/elevation_grid_test.cpp
   unit/map/edge_direction_test.cpp
   unit/map/dynamic_overlay_test.cpp
   unit/map/map_view_test.cpp
@@ -38,6 +39,7 @@ add_executable(fleet_unit_tests
   unit/world/world_test.cpp
   unit/world/truth_pose_test.cpp
   unit/osm/osm_pbf_importer_test.cpp
+  unit/dem/hgt_reader_test.cpp
   unit/geojson/geojson_export_test.cpp
   unit/localization/pose_test.cpp
   unit/localization/noisy_gnss_test.cpp
@@ -45,7 +47,7 @@ add_executable(fleet_unit_tests
 target_include_directories(fleet_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 target_link_libraries(fleet_unit_tests PRIVATE fleet::station fleet::robot fleet::network
                                            fleet::planning fleet::scenario fleet::osm_import
-                                           fleet::geojson fleet::localization
+                                           fleet::dem_import fleet::geojson fleet::localization
                                            GTest::gtest_main)
 fleet_target_warnings(fleet_unit_tests)
 
