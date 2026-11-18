@@ -5,6 +5,10 @@
 //   fleet_sim --seed <uint64>                      CLI seed (highest precedence)
 //   fleet_sim --trace <file>                       JSONL structured trace
 //
+// The scenario file's "domain" selects the runner (ADR-023): road-graph
+// scenarios (no "domain", or "graph") run on the built-in demo map; terrain
+// scenarios ("domain": "terrain") run on the terrain they declare.
+//
 // Same scenario + same resolved seed => byte-identical trace. The console
 // output and the JSONL trace are both formatters over the same TraceEvents;
 // the console sink is always attached, the JSONL sink only with --trace.
@@ -27,6 +31,8 @@
 #include "fleet/scenario/scenario.hpp"
 #include "fleet/scenario/scenario_loader.hpp"
 #include "fleet/scenario/scenario_runner.hpp"
+#include "fleet/scenario/terrain_scenario.hpp"
+#include "fleet/scenario/terrain_scenario_runner.hpp"
 #include "fleet/scenario/trace.hpp"
 
 namespace {
@@ -136,7 +142,50 @@ struct Options {
     return options;
 }
 
+// Opens the optional JSONL trace file shared by both domains.
+void open_trace(const Options& options, std::optional<std::ofstream>& trace_output,
+                std::optional<fleet::scenario::JsonlTraceSink>& jsonl_sink) {
+    if (!options.trace_file.has_value()) {
+        return;
+    }
+    trace_output.emplace(*options.trace_file, std::ios::out | std::ios::trunc);
+    if (!trace_output->is_open()) {
+        throw std::runtime_error(
+            std::format("cannot open trace file '{}'", options.trace_file->string()));
+    }
+    jsonl_sink.emplace(*trace_output);
+}
+
+int run_terrain(const Options& options) {
+    fleet::scenario::TerrainScenario scenario =
+        fleet::scenario::TerrainScenarioLoader::load(*options.scenario_file);
+    const std::string scenario_name = scenario.name;
+    const std::uint64_t resolved_seed =
+        fleet::scenario::resolve_seed(options.cli_seed, scenario.seed);
+
+    std::optional<std::ofstream> trace_output;
+    std::optional<fleet::scenario::JsonlTraceSink> jsonl_sink;
+    open_trace(options, trace_output, jsonl_sink);
+
+    fleet::scenario::ConsoleTraceSink console_sink{std::cout};
+    fleet::scenario::TerrainScenarioRunner runner{std::move(scenario), resolved_seed};
+    runner.add_sink(console_sink);
+    if (jsonl_sink.has_value()) {
+        runner.add_sink(*jsonl_sink);
+    }
+    const fleet::scenario::TerrainScenarioRunner::Result result = runner.run_to_completion();
+
+    std::cout << std::format("\nscenario '{}' finished at tick {} (resolved seed {})\n",
+                             scenario_name, result.finished_at.value, result.resolved_seed);
+    return EXIT_SUCCESS;
+}
+
 int run(const Options& options) {
+    if (options.scenario_file.has_value() &&
+        fleet::scenario::ScenarioLoader::domain_of(*options.scenario_file) ==
+            fleet::scenario::ScenarioDomain::Terrain) {
+        return run_terrain(options);
+    }
     const fleet::app::DemoMap demo = fleet::app::build_demo_map();
 
     fleet::scenario::Scenario scenario =
@@ -149,14 +198,7 @@ int run(const Options& options) {
 
     std::optional<std::ofstream> trace_output;
     std::optional<fleet::scenario::JsonlTraceSink> jsonl_sink;
-    if (options.trace_file.has_value()) {
-        trace_output.emplace(*options.trace_file, std::ios::out | std::ios::trunc);
-        if (!trace_output->is_open()) {
-            throw std::runtime_error(
-                std::format("cannot open trace file '{}'", options.trace_file->string()));
-        }
-        jsonl_sink.emplace(*trace_output);
-    }
+    open_trace(options, trace_output, jsonl_sink);
 
     fleet::scenario::ConsoleTraceSink console_sink{std::cout};
     fleet::scenario::ScenarioRunner runner{demo.base, std::move(scenario), resolved_seed};

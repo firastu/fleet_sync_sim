@@ -19,10 +19,12 @@ enum class ElevationSurface : std::uint8_t {
 
 // Vertical reference of the heights. A LABEL, never a conversion: grids keep
 // their source heights, and the datum is explicit so grids on different
-// references are never mixed silently (ADR-022). Exactly one datum exists in
-// M4 #19; others are added when a supported source needs them.
+// references are never mixed silently (ADR-022). Values are added only when a
+// supported source needs them.
 enum class VerticalDatum : std::uint8_t {
-    Egm96,  // EGM96 geoid heights in meters (SRTM)
+    Egm96,      // EGM96 geoid heights in meters (SRTM)
+    Synthetic,  // heights over an arbitrary scenario-defined reference (ADR-023);
+                // comparable only with other synthetic grids
 };
 
 // Georeferencing of a regular latitude/longitude lattice of POINT samples
@@ -90,6 +92,11 @@ class ElevationGrid {
 public:
     ElevationGrid(ElevationGridLayout layout, std::vector<float> heights_m,
                   ElevationSurface surface, VerticalDatum datum);
+
+    // The layout half of the construction contract, exposed so producers
+    // (e.g. synthetic terrain) can validate before computing samples.
+    // Throws std::invalid_argument with the same messages as the constructor.
+    static void validate_layout(const ElevationGridLayout& layout);
 
     [[nodiscard]] const ElevationGridLayout& layout() const noexcept { return layout_; }
     [[nodiscard]] ElevationSurface surface() const noexcept { return surface_; }

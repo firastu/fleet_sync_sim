@@ -362,6 +362,12 @@ int main(int argc, char* argv[]) {
     }
 
     try {
+        if (fleet::scenario::ScenarioLoader::domain_of(*scenario_file) ==
+            fleet::scenario::ScenarioDomain::Terrain) {
+            std::cerr << "fleet_console: terrain-domain scenarios are not supported by the "
+                         "console yet; run them with fleet_sim\n";
+            return EXIT_FAILURE;
+        }
         const fleet::app::DemoMap map = fleet::app::build_demo_map();
         Scenario scenario = fleet::scenario::ScenarioLoader::load(map.base, *scenario_file);
         // Read the file seed before moving the scenario into the console
