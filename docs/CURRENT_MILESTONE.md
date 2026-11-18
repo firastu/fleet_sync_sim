@@ -277,3 +277,191 @@ After #18, review the resulting localization semantics before deciding whether:
 
 Future work is promoted explicitly rather than inferred from the project
 vision.
+
+---
+
+# Proposed next milestone — M4 Terrain-referenced navigation without GNSS
+
+**Status: DRAFT for owner review (2026-11-18) — NOT authorized.**
+
+Nothing in this section is implementation scope until the owner has reviewed
+#18, accepted this draft, and promoted it to the active milestone. Until then,
+the M3 rules above govern.
+
+## Objective
+
+Off-road ground robots and drones keep navigating when GNSS is jammed, spoofed
+or absent, by matching sensed terrain height against a locally held elevation
+map — the principle behind aircraft terrain-referenced navigation.
+
+```text
+truth pose + truth terrain (world)       robot terrain map (robot-local)
+            |                                       |
+      sensor models                                 |
+  (baro, rangefinder, velocity, gyro)               |
+            |                                       |
+            +-------------> estimator <-------------+
+                                |
+                  LocalizationEstimate + spread
+                                |
+                       guidance (from #23)
+```
+
+The deterministic simulator remains the behavioral reference: same scenario +
+resolved seed produces byte-identical traces and scorecards. A physical
+backend is a candidate for the milestone after M4, not part of it.
+
+## Why the estimator decision is justified here
+
+M3 deferred an estimator until failure modes justified one. Terrain matching
+supplies them: the terrain likelihood is nonlinear, and flat or repeating
+terrain yields several equally good position hypotheses at once. The current
+single-hypothesis, replace-on-fix tracker cannot represent that ambiguity.
+#22 selects an estimator that can, in its own ADR.
+
+## Relationship to the existing core
+
+Unchanged: the deterministic event core, `DeterministicRng` and stream
+derivation, scenario and trace contracts, networking and reconciliation, the
+truth/belief separation, the localization boundary and the GNSS models.
+
+Added beside the road-graph domain, not replacing it: a terrain motion domain.
+A scenario selects one domain; mixing domains in one scenario is outside M4.
+Road-graph scenarios, the founding trace and the existing localization
+fixtures stay byte-identical.
+
+## Planned M4 sequence
+
+### #19 — Terrain elevation model — own ADR
+
+* immutable georeferenced elevation grid in meters, bilinear interpolation;
+* lookups outside coverage or on nodata fail explicitly; never clamp,
+  extrapolate or zero-fill;
+* heights stay in the source DEM's vertical datum; no implicit geoid
+  conversion;
+* surface-type metadata: surface model (treetops and roofs, what a downward
+  rangefinder sees) versus bare-earth model (what a ground robot drives on);
+* first file format: SRTM `.hgt` (plain big-endian 16-bit grid, no new
+  dependency); GeoTIFF sources such as Copernicus GLO-30 only if justified,
+  with any reader kept `PRIVATE`;
+* two roles from the start: world truth terrain and each robot's own terrain
+  map, separate instances even when loaded from the same file;
+* the ADR defines the metric frame for kilometer-scale motion;
+  `apply_en_displacement` is only specified for meter-to-tens-of-meters
+  displacements (ADR-017);
+* tests use small synthetic grids committed as fixtures; full DEM tiles are
+  not committed.
+
+### #20 — Free-space terrain motion (scripted truth) — own ADR
+
+* missions are waypoint lists (latitude, longitude, plus altitude for air
+  platforms) instead of graph start/goal;
+* deterministic kinematics: constant speed and bounded turn rate along
+  waypoint legs, integrated at a fixed integer-tick step; no physics, wind or
+  wheel slip;
+* platform variants: ground (height = truth terrain + mount height) and air
+  (constant-altitude legs in the DEM datum);
+* truth pose gains altitude; the road-graph pose path is unchanged;
+* motion is scripted truth, independent of belief, as in M3, until #23;
+* no terrain-aware path planning: legs are straight.
+
+### #21 — Relative-motion and altitude sensors — own ADR
+
+Deterministic noisy models, each on its own per-robot RNG stream derived from
+the resolved seed, with fixed draw consumption; zero-noise configurations
+consume no draws:
+
+* velocity/odometry sensor with scale error and noise — a stand-in for wheel
+  odometry, visual odometry or optical flow; slip and image texture are not
+  modeled;
+* gyro heading with bias random walk;
+* barometric altitude with drifting bias and noise;
+* downward rangefinder for air platforms: range from truth altitude to the
+  truth terrain surface, with noise, maximum range and dropouts.
+
+Sensors read truth pose and truth terrain; robots receive only sensor outputs.
+
+### #22 — Terrain-referenced estimator — own ADR (the estimator decision)
+
+* the ADR compares at least batch profile correlation (TERCOM-style), a
+  grid/point-mass filter (deterministic without random draws) and a particle
+  filter, and records why the selected approach fits the ambiguity above;
+* measurement: terrain height under the vehicle (air: baro altitude minus
+  range; ground: baro altitude minus mount height) compared with the robot's
+  own map; baro bias is estimated, not assumed known;
+* how GNSS fixes enter the estimator, replacing ADR-018's replace-on-fix rule
+  for terrain scenarios, is part of this ADR; a GNSS-free start requires an
+  explicit prior region;
+* output: `LocalizationEstimate` plus the first uncertainty/spread
+  representation, introduced by this ADR;
+* estimator randomness, if any, uses its own derived stream with fixed
+  consumption;
+* traces carry summaries (estimate, spread, hypothesis health), not full
+  particle or grid dumps.
+
+### #23 — Navigate from belief
+
+* the robot chooses commanded heading and speed from its estimate;
+* `fleet::world` integrates truth motion from those commands; truth returns to
+  the robot only through sensors;
+* degraded behavior: hold or loiter when spread exceeds a configured bound,
+  resume when it recovers.
+
+### #24 — Scenario suite and scorecard
+
+* fixtures: rough terrain, flat terrain (an expected failure that must be
+  reported, not hidden), repeating terrain, a GNSS jamming region, spoofed
+  GNSS (a new offset-fix GNSS model), robot-map error (coarser or biased
+  DEM) and rangefinder dropouts;
+* a seed-sweep tool producing a scorecard: horizontal error over time,
+  convergence time, divergence count and mission success;
+* same scenario + seed range produces a byte-identical scorecard.
+
+## Allowed in M4 (once authorized)
+
+* elevation-grid types, loaders and fixtures;
+* the terrain motion domain and waypoint missions;
+* deterministic relative-motion and altitude sensor models;
+* the estimator selected by #22 and its uncertainty representation;
+* belief-driven guidance and degraded-mode behavior (#23);
+* scorecard tooling and outward-only visualization of terrain, truth, belief
+  and spread;
+* tests and fixtures for the above.
+
+## Not authorized in M4
+
+* Gazebo, Isaac Sim, PX4, ArduPilot or ROS 2 integration;
+* physics, aerodynamics, wind or wheel-slip physics;
+* image-based sensing (visual odometry or optical flow from images, SLAM);
+* terrain-aware path planning;
+* cooperative localization or terrain-map sharing over the network;
+* threads or a new asynchronous runtime;
+* GDAL or other GIS libraries in domain modules.
+
+## M4 invariants (in addition to M3's)
+
+1. truth terrain and each robot's terrain map are separate inputs;
+
+2. robots read terrain only from their own map; truth terrain reaches them
+   only through sensor models;
+
+3. the estimator consumes sensor outputs and robot-local data only;
+   error-versus-truth diagnostics are outward-only;
+
+4. elevation lookups never silently extrapolate, clamp or zero-fill;
+
+5. road-graph scenarios, the founding trace and existing localization
+   fixtures stay byte-identical;
+
+6. same scenario + resolved seed produces byte-identical traces and
+   scorecards.
+
+The M3 validation gate applies unchanged.
+
+## After M4 (candidates, not authorized)
+
+* physical backend, Gazebo first: world terrain generated from the same DEM,
+  PX4 SITL for drones and a differential-drive model for ground robots,
+  through a simulator-neutral version of the adapter design in
+  [isaac/ARCHITECTURE.md](isaac/ARCHITECTURE.md);
+* cooperative terrain navigation over the existing unreliable network.
