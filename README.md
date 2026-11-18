@@ -19,10 +19,10 @@ The project studies robots that can:
 > localization layer (noisy GNSS, outages, dead reckoning, reacquisition) are
 > established. M4 studies navigation without GNSS for off-road robots and
 > drones by matching sensed terrain height against a local elevation map.
-> Elevation grids with SRTM import and free movement over terrain (ground and
-> air robots on waypoint missions) are merged; deterministic noisy sensors
-> (odometry, gyro, barometer, rangefinder) are implemented and awaiting
-> review.
+> Elevation grids with SRTM import, free movement over terrain and
+> deterministic noisy sensors are merged; a terrain-referenced position
+> estimator (a grid filter that finds a robot without GPS) is implemented and
+> awaiting review.
 
 FleetSyncSim began with **distributed robot-local map knowledge under unreliable
 communication**. It now provides a broader deterministic autonomy test platform
@@ -105,7 +105,9 @@ conditions reproducibly.
 * terrain-domain scenarios: ground and air robots following waypoints over
   real (SRTM) or synthetic terrain (M4 #20);
 * deterministic noisy terrain-domain sensors: odometry, gyro, barometric
-  altitude and a downward rangefinder (M4 #21).
+  altitude and a downward rangefinder (M4 #21);
+* terrain-referenced navigation without GPS: a deterministic grid filter that
+  estimates position and barometer bias from sensed terrain height (M4 #22).
 
 For exact active implementation scope, see:
 
@@ -244,6 +246,13 @@ height above ground every step. The format is described in
 trace adds a `sensor_frame` per robot with what it measured (odometry, gyro,
 barometer, and the drone's rangefinder), reproducible from the seed. See
 [ADR-024](docs/design_decisions/ADR-024-terrain-domain-sensors.md).
+
+`scenarios/terrain_navigation.json` adds an estimator to each robot: starting
+from a deliberately wrong guess 75-155 m away and with no GPS, each robot
+works out where it is by matching sensed terrain height against its map. The
+trace's `terrain_estimate` events show the belief and its spread, and
+`localization_error` events show the distance from the truth. See
+[ADR-025](docs/design_decisions/ADR-025-terrain-referenced-grid-estimator.md).
 
 ---
 

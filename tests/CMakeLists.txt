@@ -48,7 +48,8 @@ add_executable(fleet_unit_tests
   unit/localization/pose_test.cpp
   unit/localization/noisy_gnss_test.cpp
   unit/localization/estimate_tracker_test.cpp
-  unit/localization/terrain_sensors_test.cpp)
+  unit/localization/terrain_sensors_test.cpp
+  unit/localization/terrain_estimator_test.cpp)
 target_include_directories(fleet_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
 target_link_libraries(fleet_unit_tests PRIVATE fleet::station fleet::robot fleet::network
                                            fleet::planning fleet::scenario fleet::osm_import

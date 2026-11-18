@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -487,6 +488,120 @@ TEST(TerrainScenarioRunnerTest, SensorFreeScenariosHaveNoSensorsOrFrames) {
     ground.robots[0].sensors.rangefinder = fleet::localization::RangefinderSensorConfig{100.0};
     EXPECT_NE(error_message([&] { TerrainScenarioRunner rejected{ground, 0}; })
                   .find("needs an air platform"),
+              std::string::npos);
+}
+
+constexpr const char* kNavigationScenario = "scenarios/terrain_navigation.json";
+
+TEST(TerrainScenarioLoaderTest, LoadsEstimatorConfiguration) {
+    const TerrainScenario scenario = TerrainScenarioLoader::load(kNavigationScenario);
+    const auto& rover = scenario.robots[0];
+    ASSERT_TRUE(rover.estimator.has_value());
+    EXPECT_EQ(rover.estimator->reference, fleet::localization::TerrainHeightReference::Ground);
+    EXPECT_EQ(rover.estimator->mount_height_m, 0.5);  // from the robot's platform
+    EXPECT_EQ(rover.estimator->prior_center, (fleet::map::Wgs84Coordinate{46.005, 7.005}));
+    EXPECT_DOUBLE_EQ(rover.estimator->prior_heading_rad, std::numbers::pi / 2.0);
+    EXPECT_EQ(rover.estimator->half_width_m, 300.0);
+    EXPECT_EQ(rover.estimator->height_sigma_m, 1.5);
+    const auto& drone = scenario.robots[1];
+    ASSERT_TRUE(drone.estimator.has_value());
+    EXPECT_EQ(drone.estimator->reference, fleet::localization::TerrainHeightReference::Air);
+    EXPECT_EQ(drone.estimator->mount_height_m, 0.0);
+    EXPECT_FALSE(TerrainScenarioLoader::load(kSensorScenario).robots[0].estimator.has_value());
+}
+
+TEST(TerrainScenarioLoaderTest, RejectsEstimatorsTheSensorsCannotFeed) {
+    const auto message_for = [](const std::string& robot_extra, const std::string& platform) {
+        return error_message([&] {
+            (void)TerrainScenarioLoader::load_string(
+                scenario_json(robot_extra, "", "\"truth\"", platform));
+        });
+    };
+    const std::string estimator =
+        R"("estimator": {"prior": {"lat": 46.003, "lon": 7.003}, "half_width_m": 100},)";
+    const std::string ground_sensors =
+        R"("sensors": {"odometry": {}, "gyro": {}, "baro": {}},)";
+    EXPECT_NE(message_for(" " + estimator, "\"ground\"")
+                  .find("needs odometry, gyro and baro"),
+              std::string::npos);
+    EXPECT_NE(message_for(R"( "altitude_m": 900, )" + ground_sensors + " " + estimator,
+                          "\"air\"")
+                  .find("needs a rangefinder"),
+              std::string::npos);
+    EXPECT_NE(message_for(" " + ground_sensors +
+                              R"( "estimator": {"prior": {"lat": 46.003, "lon": 7.003},
+                                 "half_width_m": 105},)",
+                          "\"ground\"")
+                  .find("whole, non-zero number of cells"),
+              std::string::npos);
+    EXPECT_NE(message_for(" " + ground_sensors +
+                              R"( "estimator": {"prior": {"lat": 46.003, "lon": 7.003},
+                                 "kind": "particle"},)",
+                          "\"ground\"")
+                  .find("unknown field 'kind'"),
+              std::string::npos);
+    EXPECT_NE(message_for(" " + ground_sensors + R"( "estimator": {"half_width_m": 100},)",
+                          "\"ground\"")
+                  .find("missing field 'prior'"),
+              std::string::npos);
+    EXPECT_NO_THROW((void)TerrainScenarioLoader::load_string(
+        scenario_json(" " + ground_sensors + " " + estimator, "", "\"truth\"", "\"ground\"")));
+}
+
+TEST(TerrainScenarioRunnerTest, EstimatorsConvergeAndAreTracedAsBelief) {
+    TerrainScenarioRunner runner{TerrainScenarioLoader::load(kNavigationScenario), 1};
+    VectorTraceSink sink;
+    runner.add_sink(sink);
+    (void)runner.run_to_completion();
+
+    std::map<std::string, std::vector<double>> errors;
+    std::map<std::string, std::size_t> estimates;
+    for (const TraceEvent& event : sink.events) {
+        if (event.type == "terrain_estimate") {
+            ++estimates[event.source];
+            EXPECT_NE(field(event, "spread_m"), "<missing>");
+            EXPECT_EQ(field(event, "resets"), "0");
+        }
+        if (event.type == "localization_error") {
+            EXPECT_EQ(event.source, "world");  // truth-side diagnostic
+            errors[field(event, "robot")].push_back(
+                std::stod(field(event, "position_error_m")));
+        }
+    }
+    for (const std::string robot : {"rover", "drone"}) {
+        ASSERT_EQ(estimates[robot], runner.robot(robot).frames_received()) << robot;
+        ASSERT_EQ(errors[robot].size(), estimates[robot]) << robot;
+        ASSERT_TRUE(runner.robot(robot).estimate().has_value());
+        // Each prior starts 75-155 m off; terrain matching brings the belief
+        // within 15 m at some point over the hills.
+        EXPECT_GT(errors[robot].front(), 50.0) << robot;
+        EXPECT_LT(*std::min_element(errors[robot].begin(), errors[robot].end()), 15.0) << robot;
+    }
+    // The drone over the hills converges within its first 100 frames.
+    EXPECT_LT(errors["drone"][99], 15.0);
+}
+
+TEST(TerrainScenarioRunnerTest, NavigationTracesAreByteIdenticalAndRequireSensors) {
+    const auto trace_of = [] {
+        TerrainScenarioRunner runner{TerrainScenarioLoader::load(kNavigationScenario), 3};
+        std::ostringstream out;
+        JsonlTraceSink sink{out};
+        runner.add_sink(sink);
+        (void)runner.run_to_completion();
+        return out.str();
+    };
+    EXPECT_EQ(trace_of(), trace_of());
+
+    TerrainScenario no_gyro = TerrainScenarioLoader::load(kNavigationScenario);
+    no_gyro.robots[0].sensors.gyro.reset();
+    EXPECT_NE(error_message([&] { TerrainScenarioRunner rejected{no_gyro, 0}; })
+                  .find("the estimator needs odometry, gyro and baro"),
+              std::string::npos);
+    TerrainScenario mismatched = TerrainScenarioLoader::load(kNavigationScenario);
+    mismatched.robots[0].estimator->reference = fleet::localization::TerrainHeightReference::Air;
+    mismatched.robots[0].estimator->mount_height_m = 0.0;
+    EXPECT_NE(error_message([&] { TerrainScenarioRunner rejected{mismatched, 0}; })
+                  .find("does not match the platform"),
               std::string::npos);
 }
 

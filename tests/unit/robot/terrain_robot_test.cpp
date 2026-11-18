@@ -67,4 +67,31 @@ TEST(TerrainRobotTest, ReceivesFramesInTimeOrder) {
     EXPECT_EQ(robot.last_frame()->at, Tick{2000});
 }
 
+TEST(TerrainRobotTest, AnEstimatorTurnsFramesIntoBeliefOnTheRobotsOwnMap) {
+    fleet::localization::TerrainEstimatorConfig config;
+    config.prior_center = {0.5, 0.5};
+    config.half_width_m = 50.0;
+    config.cell_size_m = 10.0;
+    TerrainRobot robot{RobotId{1}, TerrainMission{{{0.6, 0.5}}}, flat_map(), config};
+    EXPECT_TRUE(robot.has_estimator());
+    EXPECT_FALSE(robot.estimate().has_value());
+
+    TerrainSensorFrame complete = frame(0, 1000);
+    complete.odometry_distance_m = 5.0;
+    complete.gyro_turn_rad = 0.0;
+    robot.receive(complete);
+    ASSERT_TRUE(robot.estimate().has_value());
+    EXPECT_EQ(robot.estimate()->estimate.estimated_at, Tick{1000});
+
+    // A frame the estimator cannot use is rejected and changes nothing.
+    TerrainSensorFrame incomplete = frame(1000, 2000);  // no odometry or gyro
+    EXPECT_THROW(robot.receive(incomplete), std::invalid_argument);
+    EXPECT_EQ(robot.frames_received(), 1U);
+    EXPECT_EQ(robot.estimate()->estimate.estimated_at, Tick{1000});
+
+    const TerrainRobot plain{RobotId{2}, TerrainMission{{{0.6, 0.5}}}, flat_map()};
+    EXPECT_FALSE(plain.has_estimator());
+    EXPECT_FALSE(plain.estimate().has_value());
+}
+
 }  // namespace

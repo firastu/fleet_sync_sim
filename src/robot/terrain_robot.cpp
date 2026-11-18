@@ -8,7 +8,8 @@
 namespace fleet::robot {
 
 TerrainRobot::TerrainRobot(common::RobotId id, TerrainMission mission,
-                           std::shared_ptr<const map::ElevationGrid> terrain_map)
+                           std::shared_ptr<const map::ElevationGrid> terrain_map,
+                           std::optional<localization::TerrainEstimatorConfig> estimator)
     : id_{id}, mission_{std::move(mission)}, terrain_map_{std::move(terrain_map)} {
     if (terrain_map_ == nullptr) {
         throw std::invalid_argument("TerrainRobot: a terrain map is required");
@@ -24,6 +25,14 @@ TerrainRobot::TerrainRobot(common::RobotId id, TerrainMission mission,
                 "TerrainRobot: waypoint {} must be finite and within WGS84 bounds", index));
         }
     }
+    if (estimator) {
+        estimator_.emplace(*estimator, terrain_map_);
+    }
+}
+
+const std::optional<localization::TerrainEstimate>& TerrainRobot::estimate() const noexcept {
+    static const std::optional<localization::TerrainEstimate> kNone;
+    return estimator_ ? estimator_->latest() : kNone;
 }
 
 void TerrainRobot::receive(const localization::TerrainSensorFrame& frame) {
@@ -33,6 +42,9 @@ void TerrainRobot::receive(const localization::TerrainSensorFrame& frame) {
     if (last_frame_ && frame.from < last_frame_->at) {
         throw std::invalid_argument(
             "TerrainRobot: a sensor frame must not start before the previous one ended");
+    }
+    if (estimator_) {
+        (void)estimator_->update(frame);  // throws before changing anything
     }
     last_frame_ = frame;
     ++frames_received_;

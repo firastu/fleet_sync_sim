@@ -43,16 +43,17 @@ M4 delivered:
 ```text
 #19 terrain elevation model     ADR-022  (merged, PR #2)
 #20 terrain-domain motion       ADR-023  (merged, PR #3)
+#21 terrain-domain sensors      ADR-024  (merged, PR #4)
 ```
 
 Current next step:
 
 ```text
-#21 terrain-domain sensors: implemented, awaiting review (ADR-024)
+#22 terrain-referenced grid estimator: implemented, awaiting review (ADR-025)
 ```
 
-M4 then continues in order: #22 the estimator decision (its own ADR), #23
-navigation from belief, #24 scenario suite and scorecard.
+M4 then continues in order: #23 navigation from belief, #24 scenario suite and
+scorecard.
 
 Note: Isaac Sim stage 1 (read-only replay, ADR-020) lives on the
 `feat/isaac-stage1-replay` branch, off master; master does not carry it.
@@ -350,7 +351,28 @@ range, dropouts, noise). One RNG stream per robot and sensor kind
 configuration alone; zero noise consumes nothing. The ADR-017 Irwin-Hall
 sampler is shared as `localization::irwin_hall_standard_noise`. Frames are
 sampled once per motion step and stop when the mission completes. Robots keep
-the latest frame; nothing consumes frames until the #22 estimator.
+the latest frame and feed it to their estimator, if any.
+
+## Terrain-referenced estimator (M4 #22, ADR-025)
+
+```text
+TerrainSensorFrame -> TerrainRobot::receive -> TerrainGridEstimator
+                                                  (robot's own map only)
+                                                       |
+                                     TerrainEstimate: mean, most likely,
+                                     spread, effective cells, bias, resets
+```
+
+A point-mass (grid) filter: square grid around a moving centre (dead
+reckoning from odometry + gyro moves the cells), per-cell scalar Kalman for
+the barometer bias, height likelihood `N(z - map - bias; 0, var + sigma^2)`
+(ground: baro - mount; air: baro - range), process noise convolved once it
+reaches half a cell, re-centring by whole cells, reset when all probability is
+lost, off-map cells get 0. No randomness. Heading is integrated, not
+estimated; systematic sensor errors make the belief overconfident. Trace:
+`terrain_estimate` (belief, source robot) and `localization_error` (world).
+Particle filters, EKF and SLAM remain unauthorized without a new ADR. GNSS will
+enter terrain estimation as a likelihood factor (#24).
 
 ## Geospatial boundary
 
@@ -466,7 +488,8 @@ fleet::geojson
 
 fleet::localization
     pose, GNSS models, estimate retention, reacquisition observability,
-    localization boundary, terrain-domain sensor models, shared noise sampler
+    localization boundary, terrain-domain sensor models, shared noise sampler,
+    terrain-referenced grid estimator
 ```
 
 Apps are adapters around these modules rather than owners of domain logic.
@@ -530,7 +553,7 @@ has or needs:
 * ROS 2;
 * Isaac integration;
 * SLAM;
-* an EKF, or any estimator before M4 #22 selects one;
+* an EKF, a particle filter, or any estimator other than ADR-025's grid filter;
 * belief-driven terrain guidance before M4 #23;
 * visual odometry;
 * LiDAR odometry;

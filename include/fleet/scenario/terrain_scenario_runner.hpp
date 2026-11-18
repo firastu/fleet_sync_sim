@@ -40,7 +40,11 @@ namespace fleet::scenario {
 //     seed (derive_stream_seed over a fixed per-kind domain and the stable
 //     RobotId). After each step the true increment is measured, the frame
 //     reaches the robot through TerrainRobot::receive, and a "sensor_frame"
-//     event (source: the robot) carries the measurements only.
+//     event (source: the robot) carries the measurements only;
+//   - for robots with an estimator (ADR-025): after each frame, a
+//     "terrain_estimate" event (source: the robot; belief only: mean, heading,
+//     most likely cell, spread, effective cells, bias, measured, resets) and a
+//     "localization_error" diagnostic (source "world": distance from truth).
 //
 // Every robot's motion is validated in the constructor (configuration, step
 // bound, start inside the truth terrain), so a bad scenario fails before the
@@ -98,6 +102,7 @@ private:
     void emit(TraceEvent event);
     void emit_pose(std::size_t index);
     void emit_frame(std::size_t index, const localization::TerrainSensorFrame& frame);
+    void emit_estimate(std::size_t index, const localization::TerrainEstimate& estimate);
     void step_robot(std::size_t index);
     [[nodiscard]] std::size_t index_of(std::string_view name) const;
 

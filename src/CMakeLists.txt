@@ -104,13 +104,14 @@ fleet_target_warnings(fleet_geojson)
 # Localization (ADR-016, M3): ground-truth pose, sensor models,
 # localization estimates and the truth-vs-estimate boundary, plus the
 # robot-local retained estimate + age (#16, ADR-018), and the terrain-domain
-# sensor models (ADR-024). Depends only on map coordinates, logical time and
+# sensor models (ADR-024) and grid estimator (ADR-025). Depends only on map coordinates, logical time and
 # the deterministic RNG.
 add_library(fleet_localization STATIC
   localization/noise.cpp
   localization/gnss_model.cpp
   localization/estimate_tracker.cpp
-  localization/terrain_sensors.cpp)
+  localization/terrain_sensors.cpp
+  localization/terrain_estimator.cpp)
 add_library(fleet::localization ALIAS fleet_localization)
 target_link_libraries(fleet_localization PUBLIC fleet::map fleet::simulation)
 fleet_target_warnings(fleet_localization)
