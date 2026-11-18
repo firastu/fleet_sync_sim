@@ -7,11 +7,37 @@
 #include <string>
 #include <utility>
 
+#include "fleet/simulation/deterministic_rng.hpp"
 #include "fleet/simulation/event_queue.hpp"
 
 namespace fleet::scenario {
 
 namespace {
+
+// Fixed domain discriminators for the per-robot sensor RNG streams
+// (ADR-024): ASCII "SNS_ODOM", "SNS_GYRO", "SNS_BARO", "SNS_RNGF" big-endian.
+// NEVER change: published (scenario, seed) replay compatibility depends on
+// them.
+constexpr std::uint64_t kOdometryStreamDomain = 0x534E535F4F444F4DULL;
+constexpr std::uint64_t kGyroStreamDomain = 0x534E535F4759524FULL;
+constexpr std::uint64_t kBaroStreamDomain = 0x534E535F4241524FULL;
+constexpr std::uint64_t kRangefinderStreamDomain = 0x534E535F524E4746ULL;
+
+[[nodiscard]] std::string fixed6(double value) {
+    return std::format("{:.6f}", value);
+}
+
+[[nodiscard]] std::string range_status_name(localization::RangeStatus status) {
+    switch (status) {
+        case localization::RangeStatus::Return:
+            return "return";
+        case localization::RangeStatus::OutOfRange:
+            return "out_of_range";
+        case localization::RangeStatus::Dropout:
+            return "dropout";
+    }
+    return "?";
+}
 
 [[nodiscard]] std::string surface_name(map::ElevationSurface surface) {
     switch (surface) {
@@ -67,6 +93,22 @@ TerrainScenarioRunner::TerrainScenarioRunner(TerrainScenario scenario,
                                  entry.start, entry.start_heading_rad, common::Tick{0});
             robots_.emplace_back(entry.id, robot::TerrainMission{entry.waypoints},
                                  scenario_.robot_terrain_map);
+            if (entry.sensors.rangefinder &&
+                entry.motion.platform != world::TerrainPlatform::Air) {
+                throw std::invalid_argument("a downward rangefinder needs an air platform");
+            }
+            if (entry.sensors.any()) {
+                const std::uint64_t id = entry.id.value();
+                sensors_.emplace_back(std::in_place, entry.sensors,
+                    localization::TerrainSensorSeeds{
+                        simulation::derive_stream_seed(resolved_seed_, kOdometryStreamDomain, id),
+                        simulation::derive_stream_seed(resolved_seed_, kGyroStreamDomain, id),
+                        simulation::derive_stream_seed(resolved_seed_, kBaroStreamDomain, id),
+                        simulation::derive_stream_seed(resolved_seed_, kRangefinderStreamDomain,
+                                                       id)});
+            } else {
+                sensors_.emplace_back(std::nullopt);
+            }
         } catch (const std::invalid_argument& error) {
             throw std::invalid_argument(
                 std::format("TerrainScenarioRunner: robot '{}': {}", entry.name, error.what()));
@@ -103,6 +145,11 @@ const world::TerrainMotion& TerrainScenarioRunner::truth_motion(std::string_view
     return bodies_.at(index_of(name));
 }
 
+const localization::TerrainSensors* TerrainScenarioRunner::sensors(std::string_view name) const {
+    const std::optional<localization::TerrainSensors>& slot = sensors_.at(index_of(name));
+    return slot ? &*slot : nullptr;
+}
+
 void TerrainScenarioRunner::emit_pose(std::size_t index) {
     const world::TerrainBodyState& state = bodies_[index].state();
     emit(TraceEvent{
@@ -117,6 +164,30 @@ void TerrainScenarioRunner::emit_pose(std::size_t index) {
          {"terrain_m", state.terrain_height_m},
          {"agl_m", state.altitude_m - state.terrain_height_m},
          {"next_waypoint", static_cast<std::int64_t>(state.next_waypoint)}}});
+}
+
+void TerrainScenarioRunner::emit_frame(std::size_t index,
+                                       const localization::TerrainSensorFrame& frame) {
+    TraceEvent event{frame.at,
+                     scenario_.robots[index].name,
+                     "sensor_frame",
+                     {{"from", static_cast<std::int64_t>(frame.from.value)}}};
+    if (frame.odometry_distance_m) {
+        event.fields.emplace_back("odometry_m", fixed6(*frame.odometry_distance_m));
+    }
+    if (frame.gyro_turn_rad) {
+        event.fields.emplace_back("gyro_turn_rad", fixed6(*frame.gyro_turn_rad));
+    }
+    if (frame.baro_altitude_m) {
+        event.fields.emplace_back("baro_m", fixed6(*frame.baro_altitude_m));
+    }
+    if (frame.range) {
+        event.fields.emplace_back("range", range_status_name(frame.range->status));
+        if (frame.range->range_m) {
+            event.fields.emplace_back("range_m", fixed6(*frame.range->range_m));
+        }
+    }
+    emit(std::move(event));
 }
 
 void TerrainScenarioRunner::step_robot(std::size_t index) {
@@ -137,6 +208,21 @@ void TerrainScenarioRunner::step_robot(std::size_t index) {
                          {"last", reached + 1 == body.waypoints().size()}}});
     }
     emit_pose(index);
+    if (std::optional<localization::TerrainSensors>& sensors = sensors_[index]; sensors) {
+        // The measurement boundary (ADR-024): the true increment crosses
+        // into the sensor models; only the frame reaches the robot.
+        const world::TerrainBodyState& state = body.state();
+        const localization::TerrainMotionTruth truth{
+            common::Tick{state.at.value - scenario_.step_ms},
+            state.at,
+            outcome.distance_m,
+            outcome.turn_rad,
+            state.altitude_m,
+            state.altitude_m - state.terrain_height_m};
+        const localization::TerrainSensorFrame frame = sensors->measure(truth);
+        robots_[index].receive(frame);
+        emit_frame(index, frame);
+    }
     if (!body.mission_complete()) {
         // Strictly later (step_ms >= 1, constructor-enforced): no zero-time loop.
         queue_->schedule(body.state().at + scenario_.step_ms, [this, index] { step_robot(index); });

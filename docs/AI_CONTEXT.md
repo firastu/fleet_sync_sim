@@ -42,17 +42,17 @@ M4 delivered:
 
 ```text
 #19 terrain elevation model     ADR-022  (merged, PR #2)
+#20 terrain-domain motion       ADR-023  (merged, PR #3)
 ```
 
 Current next step:
 
 ```text
-#20 terrain-domain motion: implemented, awaiting review (ADR-023)
+#21 terrain-domain sensors: implemented, awaiting review (ADR-024)
 ```
 
-M4 then continues in order: #21 relative-motion and altitude sensors, #22 the
-estimator decision (its own ADR), #23 navigation from belief, #24 scenario
-suite and scorecard.
+M4 then continues in order: #22 the estimator decision (its own ADR), #23
+navigation from belief, #24 scenario suite and scorecard.
 
 Note: Isaac Sim stage 1 (read-only replay, ADR-020) lives on the
 `feat/isaac-stage1-replay` branch, off master; master does not carry it.
@@ -329,8 +329,28 @@ bounded turn rate, arrival radius >= turning diameter, per-step displacement
 <= min(50 m, arrival radius). Ground altitude = terrain + mount height; air
 altitude is constant and must stay above the terrain. Leaving the truth
 terrain fails the run. `dem::synthesize_terrain` builds Gaussian-hill test
-terrain (`VerticalDatum::Synthetic`). No sensors, GNSS or estimator in the
-terrain domain yet (#21-#22); `fleet_console` does not run terrain scenarios.
+terrain (`VerticalDatum::Synthetic`). No GNSS or estimator in the terrain
+domain yet (#22); `fleet_console` does not run terrain scenarios.
+
+## Terrain sensors (M4 #21, ADR-024)
+
+```text
+TerrainMotion step -> TerrainMotionTruth (truth: distance, turn, altitude,
+      |                                    height above surface)
+localization::TerrainSensors (per robot, opt-in "sensors" block)
+      |
+TerrainSensorFrame (measurements only) -> TerrainRobot::receive
+      `-> "sensor_frame" trace (source: the robot)
+```
+
+Odometry (scale error, noise ~ sqrt(distance)), gyro (walking bias, angle
+random walk), baro (drifting bias, white noise), rangefinder (air only: max
+range, dropouts, noise). One RNG stream per robot and sensor kind
+(`SNS_ODOM`/`SNS_GYRO`/`SNS_BARO`/`SNS_RNGF` domains); consumption is fixed by
+configuration alone; zero noise consumes nothing. The ADR-017 Irwin-Hall
+sampler is shared as `localization::irwin_hall_standard_noise`. Frames are
+sampled once per motion step and stop when the mission completes. Robots keep
+the latest frame; nothing consumes frames until the #22 estimator.
 
 ## Geospatial boundary
 
@@ -446,7 +466,7 @@ fleet::geojson
 
 fleet::localization
     pose, GNSS models, estimate retention, reacquisition observability,
-    localization boundary
+    localization boundary, terrain-domain sensor models, shared noise sampler
 ```
 
 Apps are adapters around these modules rather than owners of domain logic.
@@ -511,7 +531,7 @@ has or needs:
 * Isaac integration;
 * SLAM;
 * an EKF, or any estimator before M4 #22 selects one;
-* altitude sensors before M4 #21, or belief-driven terrain guidance before #23;
+* belief-driven terrain guidance before M4 #23;
 * visual odometry;
 * LiDAR odometry;
 * cooperative localization;

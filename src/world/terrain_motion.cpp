@@ -212,8 +212,10 @@ TerrainStepOutcome TerrainMotion::step(std::uint64_t step_ms) {
             delta += kTwoPi;
         }
         const double max_turn = config_.max_turn_rate_rad_per_s * dt_s;
-        next.heading_rad = localization::normalize_heading(
-            next.heading_rad + std::clamp(delta, -max_turn, max_turn));
+        const double turn = std::clamp(delta, -max_turn, max_turn);
+        next.heading_rad = localization::normalize_heading(next.heading_rad + turn);
+        outcome.turn_rad = turn;
+        outcome.distance_m = distance_m;
 
         next.position = localization::apply_en_displacement(
             next.position, distance_m * std::sin(next.heading_rad),

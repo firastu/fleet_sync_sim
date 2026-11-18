@@ -2,10 +2,12 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <vector>
 
 #include "fleet/common/time.hpp"
+#include "fleet/localization/terrain_sensors.hpp"
 #include "fleet/robot/terrain_robot.hpp"
 #include "fleet/scenario/terrain_scenario.hpp"
 #include "fleet/scenario/trace.hpp"
@@ -32,20 +34,26 @@ namespace fleet::scenario {
 //   - one motion chain per robot: at tick 0 an initial "terrain_pose"; then
 //     every step_ms (strictly later, ADR-005/010) one TerrainMotion step,
 //     a "waypoint_reached" event per waypoint reached and a "terrain_pose".
-//     The chain ends once the last waypoint is reached.
+//     The chain ends once the last waypoint is reached;
+//   - for robots with sensors (ADR-024): one localization::TerrainSensors per
+//     robot, with one RNG stream per sensor kind derived from the resolved
+//     seed (derive_stream_seed over a fixed per-kind domain and the stable
+//     RobotId). After each step the true increment is measured, the frame
+//     reaches the robot through TerrainRobot::receive, and a "sensor_frame"
+//     event (source: the robot) carries the measurements only.
 //
 // Every robot's motion is validated in the constructor (configuration, step
 // bound, start inside the truth terrain), so a bad scenario fails before the
 // run. A body that later leaves the truth terrain fails the run with a
 // std::runtime_error naming the robot — truth is never manufactured.
 //
-// Trace events carry SIMULATION TRUTH under source "world": in #20 robots
-// have no belief to report yet. Positions and headings are 6-decimal
-// strings, as in "gnss_sample".
+// "world" trace events carry SIMULATION TRUTH; "sensor_frame" events carry
+// what the robot measured. Positions, headings and measurements are
+// 6-decimal strings, as in "gnss_sample". Scenarios without sensors draw no
+// randomness and their traces are unchanged by ADR-024.
 //
 // Determinism: a (scenario, resolved seed) pair produces a byte-identical
-// trace. The terrain domain draws no randomness in #20; the resolved seed is
-// recorded for the sensor streams that follow (#21).
+// trace.
 //
 // Thread-safety: not synchronized (ADR-002).
 class TerrainScenarioRunner {
@@ -83,10 +91,13 @@ public:
     [[nodiscard]] const robot::TerrainRobot& robot(std::string_view name) const;
     // Simulation truth, for tests and diagnostics only.
     [[nodiscard]] const world::TerrainMotion& truth_motion(std::string_view name) const;
+    // The robot's sensor suite (simulation side); nullptr without sensors.
+    [[nodiscard]] const localization::TerrainSensors* sensors(std::string_view name) const;
 
 private:
     void emit(TraceEvent event);
     void emit_pose(std::size_t index);
+    void emit_frame(std::size_t index, const localization::TerrainSensorFrame& frame);
     void step_robot(std::size_t index);
     [[nodiscard]] std::size_t index_of(std::string_view name) const;
 
@@ -97,6 +108,7 @@ private:
     std::unique_ptr<simulation::EventQueue> queue_;
     std::vector<world::TerrainMotion> bodies_;  // truth, one per robot
     std::vector<robot::TerrainRobot> robots_;   // robot side, one per robot
+    std::vector<std::optional<localization::TerrainSensors>> sensors_;  // one slot per robot
 };
 
 }  // namespace fleet::scenario

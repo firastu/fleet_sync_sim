@@ -8,6 +8,8 @@
 #include <optional>
 #include <stdexcept>
 
+#include "fleet/localization/noise.hpp"
+
 namespace fleet::localization {
 
 namespace {
@@ -17,31 +19,13 @@ namespace {
 // project.
 constexpr double kEarthRadiusMeters = 6371008.8;
 
-// Irwin-Hall / CLT noise: 12 midpoint-centered finite-resolution
-// uniforms per component. Each sample is symmetric about zero (exact
-// discrete mean 0; complement draws sum to exactly 0.0), so 12 summed
-// samples have variance 1 - 2^-64 — effectively unity at double
-// precision, honestly NOT the continuous-uniform "exactly 1" (ADR-017).
-// No sqrt, no transcendental, no std::normal_distribution anywhere in
-// the sampling path.
-constexpr std::uint64_t kNoiseDraws = 12;
-
-// One midpoint-centered uniform: (k + 0.5)/2^32 - 0.5 for the 32-bit
-// integer draw k — a symmetric discrete support strictly inside
-// (-0.5, +0.5), unlike k/2^32 - 0.5 whose [-0.5, +0.5) support has a
-// tiny negative mean. Every operation is exact in double arithmetic
-// (power-of-two division; values are multiples of 2^-33).
-[[nodiscard]] double centered_uniform(simulation::DeterministicRng& rng) {
-    const double draw = static_cast<double>(rng.uniform_below(1ULL << 32));
-    return (draw + 0.5) / 4294967296.0 - 0.5;
-}
-
+// Irwin-Hall / CLT noise (ADR-017): the shared deterministic sample of
+// fleet/localization/noise.hpp — 12 midpoint-centered finite-resolution
+// uniforms, variance 1 - 2^-64, no transcendental and no
+// std::normal_distribution in the sampling path. Scaling by sigma happens
+// here, after the sum, exactly as before the sampler was shared.
 [[nodiscard]] double sigma_scaled_noise(simulation::DeterministicRng& rng, double sigma) {
-    double sum = 0.0;
-    for (std::uint64_t i = 0; i < kNoiseDraws; ++i) {
-        sum += centered_uniform(rng);
-    }
-    return sum * sigma;
+    return irwin_hall_standard_noise(rng) * sigma;
 }
 
 }  // namespace
