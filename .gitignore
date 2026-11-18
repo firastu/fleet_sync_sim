@@ -27,6 +27,10 @@ research/
 *.osm.pbf
 !tests/fixtures/osm/*.osm.pbf
 
+# Downloaded elevation (DEM) tiles never belong in the repository; tests
+# synthesize their tiles.
+*.hgt
+
 
 .ai/
 

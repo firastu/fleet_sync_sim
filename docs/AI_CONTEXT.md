@@ -24,26 +24,29 @@ wins.
 ```text
 M1  deterministic distributed reference simulator     COMPLETE
 M2  movement, sensing, geospatial grounding           COMPLETE
-M3  resilient positioning / localization              IN PROGRESS
+M3  resilient positioning / localization              CLOSED (#18 review outstanding)
+M4  terrain-referenced navigation without GNSS        IN PROGRESS
 ```
 
-M3 completed:
+M3 delivered:
 
 ```text
 #14 localization boundary       ADR-016
 #15 deterministic noisy GNSS    ADR-017
 #16 outage + stale estimates    ADR-018
 #17 dead reckoning / drift      ADR-019  (owner-reviewed 2026-09-21)
+#18 GNSS reacquisition          ADR-021  (implemented; owner review outstanding)
 ```
 
 Current next step:
 
 ```text
-#18 GNSS reacquisition observability: implemented, awaiting review (ADR-021)
+#19 terrain elevation model: implemented, awaiting review (ADR-022)
 ```
 
-After the #18 review: review the accumulated measurement/failure semantics,
-then decide whether estimator architecture is justified (its own ADR).
+M4 then continues in order: #20 terrain motion, #21 relative-motion and
+altitude sensors, #22 the estimator decision (its own ADR), #23 navigation
+from belief, #24 scenario suite and scorecard.
 
 Note: Isaac Sim stage 1 (read-only replay, ADR-020) lives on the
 `feat/isaac-stage1-replay` branch, off master; master does not carry it.
@@ -281,6 +284,26 @@ Without the opt-in block, #16's frozen estimate remains unchanged. With it,
 Trace and console show source/last-fix age; separate simulation-side diagnostics
 show position error without feeding truth to autonomy. Review #17 before #18.
 
+## Terrain elevation (M4 #19, ADR-022)
+
+```text
+SRTM .hgt tile
+      |
+fleet::dem (fleet_dem_import)
+      |
+map::ElevationGrid  (immutable WGS84 lattice of point samples)
+      |                         \
+world truth terrain        robot terrain map      (separate handles, #20)
+```
+
+Lookups are bilinear and return an explicit status: `Ok`,
+`OutsideCoverage` or `NoData` — never a clamped, extrapolated or zero-filled
+height. Grids carry `ElevationSurface` (surface model versus bare earth) and a
+`VerticalDatum` label (`Egm96`); no datum conversion exists. Terrain-domain
+positions stay WGS84; motion will advance them by per-step displacements
+through `apply_en_displacement` (no scenario-global projection). Nothing
+consumes terrain yet: motion, sensors and the estimator are #20-#22.
+
 ## Geospatial boundary
 
 Real map flow:
@@ -361,7 +384,8 @@ fleet::common
     strong/common value types
 
 fleet::map
-    Graph, BaseMap, MapGeometry, overlays, reconciliation
+    Graph, BaseMap, MapGeometry, overlays, reconciliation,
+    terrain ElevationGrid
 
 fleet::planning
     deterministic A* routing
@@ -383,6 +407,9 @@ fleet::scenario
 
 fleet::osm
     deterministic OSM import
+
+fleet::dem
+    SRTM .hgt elevation import
 
 fleet::geojson
     outward-only debug/export adapters
@@ -453,7 +480,8 @@ has or needs:
 * ROS 2;
 * Isaac integration;
 * SLAM;
-* an EKF;
+* an EKF, or any estimator before M4 #22 selects one;
+* terrain motion or altitude sensors before M4 #20/#21;
 * visual odometry;
 * LiDAR odometry;
 * cooperative localization;

@@ -12,13 +12,15 @@ The project studies robots that can:
 * continue operating through communication or positioning loss;
 * make degraded state observable instead of silently depending on infrastructure.
 
-> **Status: M2 complete; M3 resilient localization is in progress.**
+> **Status: M3 closed; M4 terrain-referenced navigation is in progress.**
 >
 > The deterministic distributed-autonomy platform, movement/sensing layer,
-> OSM/GeoJSON integration, and interactive scenario tooling are established.
-> M3 currently studies positioning degradation: the localization boundary and
-> deterministic noisy GNSS, outages and stale estimates are implemented.
-> Opt-in deterministic dead reckoning is implemented and awaiting #17 review.
+> OSM/GeoJSON integration, interactive scenario tooling and the M3
+> localization layer (noisy GNSS, outages, dead reckoning, reacquisition) are
+> established. M4 studies navigation without GNSS for off-road robots and
+> drones by matching sensed terrain height against a local elevation map. Its
+> first step, deterministic elevation grids with SRTM import, is implemented
+> and awaiting review.
 
 FleetSyncSim began with **distributed robot-local map knowledge under unreliable
 communication**. It now provides a broader deterministic autonomy test platform
@@ -95,7 +97,9 @@ conditions reproducibly.
 * localization truth/estimate boundary;
 * perfect, unavailable and deterministic noisy GNSS models;
 * GNSS outage scenarios with retained, aging localization estimates;
-* opt-in robot-local dead reckoning with deterministic drift and error diagnostics.
+* opt-in robot-local dead reckoning with deterministic drift and error diagnostics;
+* observable GNSS reacquisition after outages or drift;
+* terrain elevation grids with deterministic SRTM `.hgt` import (M4 #19).
 
 For exact active implementation scope, see:
 
