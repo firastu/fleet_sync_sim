@@ -275,6 +275,54 @@ void reject_unknown_fields(const json& object, std::string_view where,
     return sensors;
 }
 
+// The robot's opt-in "estimator" object (ADR-025). The prior is required;
+// tuning fields default to TerrainEstimatorConfig's values. The height
+// reference and mount height come from the robot's platform.
+[[nodiscard]] localization::TerrainEstimatorConfig parse_estimator(
+    const json& value, const std::string& where, const TerrainScenarioRobot& robot) {
+    require_object(value, where);
+    reject_unknown_fields(value, where,
+                          {"prior", "half_width_m", "cell_size_m", "position_noise_m_per_sqrt_m",
+                           "height_sigma_m", "baro_bias_sigma_m", "baro_bias_walk_m_per_sqrt_s"});
+    localization::TerrainEstimatorConfig config;
+    const json& prior = require(value, "prior", where);
+    config.prior_center = parse_coordinate(prior, where + ".prior", {"lat", "lon", "heading_deg"});
+    config.prior_heading_rad =
+        optional_number(prior, "heading_deg", where + ".prior").value_or(0.0) * kDegToRad;
+    const auto tune = [&](const char* key, double& field) {
+        if (const auto number = optional_number(value, key, where)) {
+            field = *number;
+        }
+    };
+    tune("half_width_m", config.half_width_m);
+    tune("cell_size_m", config.cell_size_m);
+    tune("position_noise_m_per_sqrt_m", config.position_noise_m_per_sqrt_m);
+    tune("height_sigma_m", config.height_sigma_m);
+    tune("baro_bias_sigma_m", config.baro_bias_sigma_m);
+    tune("baro_bias_walk_m_per_sqrt_s", config.baro_bias_walk_m_per_sqrt_s);
+    if (robot.motion.platform == world::TerrainPlatform::Ground) {
+        config.reference = localization::TerrainHeightReference::Ground;
+        config.mount_height_m = robot.motion.mount_height_m;
+    } else {
+        config.reference = localization::TerrainHeightReference::Air;
+    }
+    const localization::TerrainSensorConfig& sensors = robot.sensors;
+    if (!sensors.odometry || !sensors.gyro || !sensors.baro) {
+        throw load_error(
+            std::format("{}: the estimator needs odometry, gyro and baro sensors", where));
+    }
+    if (config.reference == localization::TerrainHeightReference::Air && !sensors.rangefinder) {
+        throw load_error(
+            std::format("{}: an air robot's estimator needs a rangefinder", where));
+    }
+    try {
+        config.validate();
+    } catch (const std::invalid_argument& error) {
+        throw load_error(std::format("{}: {}", where, error.what()));
+    }
+    return config;
+}
+
 [[nodiscard]] TerrainScenarioRobot parse_robot(const json& value, std::size_t index,
                                                std::set<std::string>& names,
                                                std::set<std::uint64_t>& ids) {
@@ -286,7 +334,7 @@ void reject_unknown_fields(const json& object, std::string_view where,
     reject_unknown_fields(value, where,
                           {"name", "id", "platform", "speed_mps", "max_turn_rate_deg_per_s",
                            "arrival_radius_m", "mount_height_m", "altitude_m", "start",
-                           "waypoints", "sensors"});
+                           "waypoints", "sensors", "estimator"});
     if (!names.insert(robot.name).second) {
         throw load_error(std::format("duplicate robot name '{}'", robot.name));
     }
@@ -344,6 +392,9 @@ void reject_unknown_fields(const json& object, std::string_view where,
     }
     if (const auto sensors = value.find("sensors"); sensors != value.end()) {
         robot.sensors = parse_sensors(*sensors, where + " sensors", robot.motion.platform);
+    }
+    if (const auto estimator = value.find("estimator"); estimator != value.end()) {
+        robot.estimator = parse_estimator(*estimator, where + " estimator", robot);
     }
     return robot;
 }

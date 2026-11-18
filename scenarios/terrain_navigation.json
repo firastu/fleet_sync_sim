@@ -1,0 +1,95 @@
+{
+  "name": "terrain_navigation",
+  "domain": "terrain",
+  "seed": 1,
+  "duration_ms": 600000,
+  "motion": { "step_ms": 1000 },
+  "terrain": {
+    "truth": {
+      "synthetic": {
+        "north_west": { "lat": 46.02, "lon": 7.00 },
+        "south_east": { "lat": 46.00, "lon": 7.03 },
+        "rows": 81,
+        "columns": 81,
+        "base_height_m": 800,
+        "surface": "bare_earth",
+        "hills": [
+          { "lat": 46.012, "lon": 7.010, "height_m": 150, "radius_m": 350 },
+          { "lat": 46.006, "lon": 7.022, "height_m": 90, "radius_m": 250 },
+          { "lat": 46.016, "lon": 7.024, "height_m": -40, "radius_m": 300 }
+        ]
+      }
+    },
+    "robot_map": "truth"
+  },
+  "robots": [
+    {
+      "name": "rover",
+      "id": 1,
+      "platform": "ground",
+      "mount_height_m": 0.5,
+      "speed_mps": 5.0,
+      "max_turn_rate_deg_per_s": 45,
+      "arrival_radius_m": 15,
+      "start": { "lat": 46.004, "lon": 7.004, "heading_deg": 90 },
+      "waypoints": [
+        { "lat": 46.004, "lon": 7.016 },
+        { "lat": 46.014, "lon": 7.016 },
+        { "lat": 46.014, "lon": 7.026 }
+      ],
+      "sensors": {
+        "odometry": { "scale_error": 0.02, "noise_m_per_sqrt_m": 0.05 },
+        "gyro": {
+          "initial_bias_deg_per_s": 0.005,
+          "bias_walk_deg_per_s_per_sqrt_s": 0.0005,
+          "angle_random_walk_deg_per_sqrt_s": 0.01
+        },
+        "baro": { "initial_bias_m": 3.0, "bias_walk_m_per_sqrt_s": 0.05, "noise_sigma_m": 0.4 }
+      },
+      "estimator": {
+        "prior": { "lat": 46.005, "lon": 7.005, "heading_deg": 90 },
+        "half_width_m": 300,
+        "cell_size_m": 10,
+        "position_noise_m_per_sqrt_m": 0.5,
+        "height_sigma_m": 1.5,
+        "baro_bias_sigma_m": 10,
+        "baro_bias_walk_m_per_sqrt_s": 0.05
+      }
+    },
+    {
+      "name": "drone",
+      "id": 2,
+      "platform": "air",
+      "altitude_m": 1100,
+      "speed_mps": 15.0,
+      "max_turn_rate_deg_per_s": 30,
+      "arrival_radius_m": 60,
+      "start": { "lat": 46.002, "lon": 7.002, "heading_deg": 0 },
+      "waypoints": [
+        { "lat": 46.018, "lon": 7.002 },
+        { "lat": 46.018, "lon": 7.028 },
+        { "lat": 46.002, "lon": 7.028 },
+        { "lat": 46.002, "lon": 7.002 }
+      ],
+      "sensors": {
+        "odometry": { "scale_error": -0.01, "noise_m_per_sqrt_m": 0.1 },
+        "gyro": {
+          "initial_bias_deg_per_s": -0.004,
+          "bias_walk_deg_per_s_per_sqrt_s": 0.0005,
+          "angle_random_walk_deg_per_sqrt_s": 0.01
+        },
+        "baro": { "initial_bias_m": -2.0, "bias_walk_m_per_sqrt_s": 0.05, "noise_sigma_m": 0.5 },
+        "rangefinder": { "max_range_m": 400, "noise_sigma_m": 1.0, "dropout_ppm": 20000 }
+      },
+      "estimator": {
+        "prior": { "lat": 46.003, "lon": 7.0035, "heading_deg": 0 },
+        "half_width_m": 300,
+        "cell_size_m": 10,
+        "position_noise_m_per_sqrt_m": 0.5,
+        "height_sigma_m": 2.0,
+        "baro_bias_sigma_m": 10,
+        "baro_bias_walk_m_per_sqrt_s": 0.05
+      }
+    }
+  ]
+}

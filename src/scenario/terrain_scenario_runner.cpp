@@ -9,6 +9,7 @@
 
 #include "fleet/simulation/deterministic_rng.hpp"
 #include "fleet/simulation/event_queue.hpp"
+#include "fleet/world/truth_pose.hpp"
 
 namespace fleet::scenario {
 
@@ -91,8 +92,22 @@ TerrainScenarioRunner::TerrainScenarioRunner(TerrainScenario scenario,
             world::TerrainMotion::validate_step(entry.motion, scenario_.step_ms);
             bodies_.emplace_back(entry.motion, entry.waypoints, scenario_.truth_terrain,
                                  entry.start, entry.start_heading_rad, common::Tick{0});
+            if (entry.estimator) {
+                const bool air = entry.motion.platform == world::TerrainPlatform::Air;
+                if (!entry.sensors.odometry || !entry.sensors.gyro || !entry.sensors.baro ||
+                    (air && !entry.sensors.rangefinder)) {
+                    throw std::invalid_argument(
+                        "the estimator needs odometry, gyro and baro sensors (and a "
+                        "rangefinder on air platforms)");
+                }
+                if ((entry.estimator->reference == localization::TerrainHeightReference::Air) !=
+                    air) {
+                    throw std::invalid_argument(
+                        "the estimator's height reference does not match the platform");
+                }
+            }
             robots_.emplace_back(entry.id, robot::TerrainMission{entry.waypoints},
-                                 scenario_.robot_terrain_map);
+                                 scenario_.robot_terrain_map, entry.estimator);
             if (entry.sensors.rangefinder &&
                 entry.motion.platform != world::TerrainPlatform::Air) {
                 throw std::invalid_argument("a downward rangefinder needs an air platform");
@@ -190,6 +205,38 @@ void TerrainScenarioRunner::emit_frame(std::size_t index,
     emit(std::move(event));
 }
 
+void TerrainScenarioRunner::emit_estimate(std::size_t index,
+                                          const localization::TerrainEstimate& estimate) {
+    const std::string& name = scenario_.robots[index].name;
+    const localization::LocalizationEstimate& belief = estimate.estimate;
+    emit(TraceEvent{
+        belief.estimated_at,
+        name,
+        "terrain_estimate",
+        {{"position", std::format("{:.6f},{:.6f}", belief.position.latitude_deg,
+                                  belief.position.longitude_deg)},
+         {"heading", fixed6(belief.heading_rad)},
+         {"most_likely", std::format("{:.6f},{:.6f}", estimate.most_likely.latitude_deg,
+                                     estimate.most_likely.longitude_deg)},
+         {"spread_m", estimate.spread_m},
+         {"effective_cells", estimate.effective_cells},
+         {"bias_m", estimate.baro_bias_m},
+         {"measured", estimate.measured},
+         {"resets", static_cast<std::int64_t>(estimate.resets)}}});
+    // Simulation-side diagnostic (outward only, never fed back): how far the
+    // belief is from the truth.
+    const world::TerrainBodyState& truth = bodies_[index].state();
+    emit(TraceEvent{
+        belief.estimated_at,
+        "world",
+        "localization_error",
+        {{"robot", name},
+         {"position_error_m",
+          world::localization_position_error_m(
+              localization::GroundTruthPose{truth.position, truth.heading_rad, truth.at},
+              belief)}}});
+}
+
 void TerrainScenarioRunner::step_robot(std::size_t index) {
     world::TerrainMotion& body = bodies_[index];
     world::TerrainStepOutcome outcome;
@@ -222,6 +269,9 @@ void TerrainScenarioRunner::step_robot(std::size_t index) {
         const localization::TerrainSensorFrame frame = sensors->measure(truth);
         robots_[index].receive(frame);
         emit_frame(index, frame);
+        if (const auto& estimate = robots_[index].estimate(); estimate) {
+            emit_estimate(index, *estimate);
+        }
     }
     if (!body.mission_complete()) {
         // Strictly later (step_ms >= 1, constructor-enforced): no zero-time loop.

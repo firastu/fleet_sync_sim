@@ -145,11 +145,9 @@ fixtures stay byte-identical.
 
 ---
 
-## Current objective
-
 ### #21 — Relative-motion and altitude sensors — ADR-024
 
-**Implemented; awaiting review.** Contract recorded in
+**Merged to master (PR #4).** Contract recorded in
 [ADR-024](design_decisions/ADR-024-terrain-domain-sensors.md).
 
 * `localization::TerrainSensors`, one per robot with sensors: odometry
@@ -170,25 +168,36 @@ fixtures stay byte-identical.
 
 ---
 
+## Current objective
+
+### #22 — Terrain-referenced estimator — ADR-025 (the estimator decision)
+
+**Implemented; awaiting review.** Contract recorded in
+[ADR-025](design_decisions/ADR-025-terrain-referenced-grid-estimator.md).
+
+* decision: a point-mass (grid) filter, chosen over TERCOM-style batch
+  correlation and a particle filter because it represents multimodal
+  ambiguity exactly, draws no randomness and updates every frame;
+* the barometer bias is estimated per cell (scalar Kalman, Rao-Blackwellized),
+  not assumed known;
+* moving grid driven by odometry and gyro dead reckoning, process noise
+  applied by convolution once it reaches half a cell, re-centring by whole
+  cells, reset-to-prior when every hypothesis is lost; cells off the robot's
+  map get probability 0;
+* explicit prior region per robot; heading integrated from the gyro (not
+  estimated);
+* first uncertainty representation: `TerrainEstimate` (mean, most likely
+  cell, spread, effective cells, bias, resets);
+* GNSS in terrain scenarios will enter as a likelihood factor, not a
+  replacement (implemented with #24's GNSS scenarios);
+* opt-in per robot (`estimator` block); `terrain_estimate` (belief) and
+  `localization_error` (world diagnostic) trace events;
+  `scenarios/terrain_navigation.json` converges from 75-155 m prior offsets;
+* every pre-existing trace is byte-identical.
+
+---
+
 ## Planned M4 sequence
-
-### #22 — Terrain-referenced estimator — own ADR (the estimator decision)
-
-* the ADR compares at least batch profile correlation (TERCOM-style), a
-  grid/point-mass filter (deterministic without random draws) and a particle
-  filter, and records why the selected approach fits the ambiguity above;
-* measurement: terrain height under the vehicle (air: baro altitude minus
-  range; ground: baro altitude minus mount height) compared with the robot's
-  own map; baro bias is estimated, not assumed known;
-* how GNSS fixes enter the estimator, replacing ADR-018's replace-on-fix rule
-  for terrain scenarios, is part of this ADR; a GNSS-free start requires an
-  explicit prior region;
-* output: `LocalizationEstimate` plus the first uncertainty/spread
-  representation, introduced by this ADR;
-* estimator randomness, if any, uses its own derived stream with fixed
-  consumption;
-* traces carry summaries (estimate, spread, hypothesis health), not full
-  particle or grid dumps.
 
 ### #23 — Navigate from belief
 
