@@ -38,15 +38,21 @@ M3 delivered:
 #18 GNSS reacquisition          ADR-021  (implemented; owner review outstanding)
 ```
 
+M4 delivered:
+
+```text
+#19 terrain elevation model     ADR-022  (merged, PR #2)
+```
+
 Current next step:
 
 ```text
-#19 terrain elevation model: implemented, awaiting review (ADR-022)
+#20 terrain-domain motion: implemented, awaiting review (ADR-023)
 ```
 
-M4 then continues in order: #20 terrain motion, #21 relative-motion and
-altitude sensors, #22 the estimator decision (its own ADR), #23 navigation
-from belief, #24 scenario suite and scorecard.
+M4 then continues in order: #21 relative-motion and altitude sensors, #22 the
+estimator decision (its own ADR), #23 navigation from belief, #24 scenario
+suite and scorecard.
 
 Note: Isaac Sim stage 1 (read-only replay, ADR-020) lives on the
 `feat/isaac-stage1-replay` branch, off master; master does not carry it.
@@ -301,8 +307,30 @@ Lookups are bilinear and return an explicit status: `Ok`,
 height. Grids carry `ElevationSurface` (surface model versus bare earth) and a
 `VerticalDatum` label (`Egm96`); no datum conversion exists. Terrain-domain
 positions stay WGS84; motion will advance them by per-step displacements
-through `apply_en_displacement` (no scenario-global projection). Nothing
-consumes terrain yet: motion, sensors and the estimator are #20-#22.
+through `apply_en_displacement` (no scenario-global projection).
+
+## Terrain domain (M4 #20, ADR-023)
+
+```text
+scenario file "domain": "terrain"
+      |
+TerrainScenarioLoader  -> TerrainScenario (grids resolved, strict JSON)
+      |
+TerrainScenarioRunner
+      |-- world::TerrainMotion   truth body per robot (scripted, on truth terrain)
+      |-- robot::TerrainRobot    mission + robot terrain map handle (no truth)
+      `-- trace: terrain, terrain_pose, waypoint_reached (source "world")
+```
+
+A second scenario domain beside the road graph; one scenario uses one
+domain, and files without `"domain"` are graph scenarios. Truth motion is
+kinematic pure pursuit on TRUE position (a script until #23): constant speed,
+bounded turn rate, arrival radius >= turning diameter, per-step displacement
+<= min(50 m, arrival radius). Ground altitude = terrain + mount height; air
+altitude is constant and must stay above the terrain. Leaving the truth
+terrain fails the run. `dem::synthesize_terrain` builds Gaussian-hill test
+terrain (`VerticalDatum::Synthetic`). No sensors, GNSS or estimator in the
+terrain domain yet (#21-#22); `fleet_console` does not run terrain scenarios.
 
 ## Geospatial boundary
 
@@ -397,19 +425,21 @@ fleet::network
     deterministic unreliable transport
 
 fleet::robot
-    robot-local autonomy
+    robot-local autonomy; terrain-domain TerrainRobot
 
 fleet::world
-    simulation ground truth, observation boundary, truth-pose derivation
+    simulation ground truth, observation boundary, truth-pose derivation,
+    terrain-domain truth motion
 
 fleet::scenario
-    scenario loading, scheduling and orchestration
+    scenario loading, scheduling and orchestration (road-graph and terrain
+    domains)
 
 fleet::osm
     deterministic OSM import
 
 fleet::dem
-    SRTM .hgt elevation import
+    SRTM .hgt elevation import, synthetic terrain
 
 fleet::geojson
     outward-only debug/export adapters
@@ -481,7 +511,7 @@ has or needs:
 * Isaac integration;
 * SLAM;
 * an EKF, or any estimator before M4 #22 selects one;
-* terrain motion or altitude sensors before M4 #20/#21;
+* altitude sensors before M4 #21, or belief-driven terrain guidance before #23;
 * visual odometry;
 * LiDAR odometry;
 * cooperative localization;

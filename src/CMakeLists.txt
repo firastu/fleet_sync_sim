@@ -63,10 +63,12 @@ target_link_libraries(fleet_network PUBLIC fleet::simulation fleet::map)
 fleet_target_warnings(fleet_network)
 
 # Autonomous participants: mission, local knowledge, routing autonomy,
-# and robot-local localization state (the retained estimate, #16).
+# robot-local localization state (the retained estimate, #16), and the
+# terrain-domain participant (ADR-023).
 add_library(fleet_robot STATIC
   robot/robot.cpp
-  robot/odometry.cpp)
+  robot/odometry.cpp
+  robot/terrain_robot.cpp)
 add_library(fleet::robot ALIAS fleet_robot)
 target_link_libraries(fleet_robot PUBLIC fleet::planning fleet::map fleet::localization)
 fleet_target_warnings(fleet_robot)
@@ -80,11 +82,13 @@ fleet_target_warnings(fleet_station)
 
 # Simulation ground truth + the observation boundary between world truth
 # and robot belief (ADR-011), plus simulation-side truth-pose derivation
-# from movement state + map geometry (#16, ADR-018).
+# from movement state + map geometry (#16, ADR-018) and scripted terrain-
+# domain truth motion (ADR-023).
 add_library(fleet_world STATIC
   world/world.cpp
   world/observation_model.cpp
-  world/truth_pose.cpp)
+  world/truth_pose.cpp
+  world/terrain_motion.cpp)
 add_library(fleet::world ALIAS fleet_world)
 target_link_libraries(fleet_world PUBLIC fleet::robot fleet::map fleet::localization)
 fleet_target_warnings(fleet_world)
@@ -144,26 +148,31 @@ target_link_libraries(fleet_osm_import
   PRIVATE ZLIB::ZLIB)
 fleet_target_warnings(fleet_osm_import)
 
-# Elevation (DEM) import: SRTM .hgt tiles -> map::ElevationGrid (ADR-022,
-# M4 #19). A separate importer target like fleet_osm_import, so the map core
-# never knows file formats. The HGT format needs no third-party dependency.
+# Elevation (DEM) sources: SRTM .hgt tiles (ADR-022, M4 #19) and analytic
+# synthetic terrain (ADR-023) -> map::ElevationGrid. A separate target like
+# fleet_osm_import, so the map core never knows file formats. No third-party
+# dependency.
 add_library(fleet_dem_import STATIC
-  dem/hgt_reader.cpp)
+  dem/hgt_reader.cpp
+  dem/synthetic_terrain.cpp)
 add_library(fleet::dem_import ALIAS fleet_dem_import)
 target_link_libraries(fleet_dem_import PUBLIC fleet::map)
 fleet_target_warnings(fleet_dem_import)
 
 # Scenario runner + deterministic structured trace: wiring and scheduling
-# over existing public APIs only (ADR-009). The JSON parser is PRIVATE to
-# the loader; everything downstream consumes typed Scenario data.
+# over existing public APIs only (ADR-009), for the road-graph domain and the
+# terrain domain (ADR-023). The JSON parser and the DEM sources are PRIVATE to
+# the loaders; everything downstream consumes typed scenario data.
 add_library(fleet_scenario STATIC
   scenario/trace.cpp
   scenario/scenario_loader.cpp
-  scenario/scenario_runner.cpp)
+  scenario/scenario_runner.cpp
+  scenario/terrain_scenario_loader.cpp
+  scenario/terrain_scenario_runner.cpp)
 add_library(fleet::scenario ALIAS fleet_scenario)
 target_include_directories(fleet_scenario PUBLIC
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
 target_link_libraries(fleet_scenario
   PUBLIC fleet::robot fleet::network fleet::station fleet::world fleet::localization
-  PRIVATE nlohmann_json::nlohmann_json)
+  PRIVATE nlohmann_json::nlohmann_json fleet::dem_import)
 fleet_target_warnings(fleet_scenario)

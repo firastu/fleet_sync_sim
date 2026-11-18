@@ -36,10 +36,13 @@ add_executable(fleet_unit_tests
   unit/scenario/scenario_stepping_test.cpp
   unit/scenario/scenario_localization_test.cpp
   unit/scenario/scenario_reacquisition_test.cpp
+  unit/scenario/terrain_scenario_test.cpp
   unit/world/world_test.cpp
   unit/world/truth_pose_test.cpp
+  unit/world/terrain_motion_test.cpp
   unit/osm/osm_pbf_importer_test.cpp
   unit/dem/hgt_reader_test.cpp
+  unit/dem/synthetic_terrain_test.cpp
   unit/geojson/geojson_export_test.cpp
   unit/localization/pose_test.cpp
   unit/localization/noisy_gnss_test.cpp

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 
@@ -7,6 +8,13 @@
 #include "fleet/scenario/scenario.hpp"
 
 namespace fleet::scenario {
+
+// Which scenario domain a file declares (ADR-023). A file without a
+// "domain" field is a Graph scenario, so every pre-M4 scenario is unchanged.
+enum class ScenarioDomain : std::uint8_t {
+    Graph,    // road-graph scenarios: ScenarioLoader + ScenarioRunner
+    Terrain,  // terrain scenarios: TerrainScenarioLoader + TerrainScenarioRunner
+};
 
 // Parses scenario JSON into typed Scenario data (ADR-009). Parser types
 // never leak past this boundary: simulation code consumes only Scenario.
@@ -27,8 +35,14 @@ namespace fleet::scenario {
 // observation's tick IS its observation time, sorting also guarantees the
 // Robot producer contract (non-decreasing per-edge observation ticks) by
 // construction.
+//
+// A file declaring any "domain" other than "graph" is rejected with a
+// message naming the domain (ADR-023): load terrain scenarios with
+// TerrainScenarioLoader. domain_of() reads only the "domain" field, so
+// callers can dispatch before choosing a loader.
 class ScenarioLoader {
 public:
+    [[nodiscard]] static ScenarioDomain domain_of(const std::filesystem::path& file);
     [[nodiscard]] static Scenario load(const map::BaseMap& base,
                                        const std::filesystem::path& file);
     [[nodiscard]] static Scenario load_string(const map::BaseMap& base,

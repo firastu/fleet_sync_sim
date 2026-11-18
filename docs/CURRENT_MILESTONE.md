@@ -93,11 +93,11 @@ fixtures stay byte-identical.
 
 ---
 
-## Current objective
+## Completed
 
 ### #19 — Terrain elevation model — ADR-022
 
-**Implemented; awaiting review.** Contract recorded in
+**Merged to master (PR #2).** Contract recorded in
 [ADR-022](design_decisions/ADR-022-terrain-elevation-grids.md).
 
 * immutable `fleet::map::ElevationGrid`: a WGS84 lattice of point samples
@@ -116,22 +116,38 @@ fixtures stay byte-identical.
 
 ---
 
+## Current objective
+
+### #20 — Free-space terrain motion (scripted truth) — ADR-023
+
+**Implemented; awaiting review.** Contract recorded in
+[ADR-023](design_decisions/ADR-023-terrain-domain-motion.md).
+
+* a second scenario domain: files declaring `"domain": "terrain"` load with
+  `TerrainScenarioLoader` and run with `TerrainScenarioRunner`; files without
+  `"domain"` stay road-graph scenarios, unchanged;
+* `world::TerrainMotion`: scripted truth motion along waypoint lists with
+  constant speed and bounded turn rate, at a fixed integer-tick step bounded
+  to min(50 m, arrival radius) per step; arrival radius at least the turning
+  diameter; no physics, wind or slip;
+* platforms: ground (altitude = truth terrain + mount height) and air (one
+  constant altitude per robot, strictly above the terrain);
+* explicit failure when a body leaves the truth terrain, hits NODATA, or an
+  air body is not above the terrain — never a manufactured height;
+* `robot::TerrainRobot` holds the mission and the robot's own terrain map
+  handle; the scenario's `robot_map` is `"truth"` or a separate source with
+  the same datum (one map for all robots in #20);
+* `dem::synthesize_terrain`: Gaussian hills and depressions over a base
+  height (`VerticalDatum::Synthetic`), so fixtures need no DEM tiles;
+* truth trace events `terrain`, `terrain_pose` and `waypoint_reached`;
+  `fleet_sim` runs terrain scenarios, `fleet_console` refuses them for now;
+* the truth state carries altitude; `GroundTruthPose` is unchanged until the
+  sensors of #21 need it;
+* every road-graph trace, including the founding trace, is unchanged.
+
+---
+
 ## Planned M4 sequence
-
-### #20 — Free-space terrain motion (scripted truth) — own ADR
-
-* missions are waypoint lists (latitude, longitude, plus altitude for air
-  platforms) instead of graph start/goal;
-* scenario terrain block: world truth terrain and per-robot terrain maps as
-  separate handles (ADR-022);
-* deterministic kinematics: constant speed and bounded turn rate along
-  waypoint legs, integrated at a fixed integer-tick step with bounded
-  per-step displacements (ADR-022); no physics, wind or wheel slip;
-* platform variants: ground (height = truth terrain + mount height) and air
-  (constant-altitude legs in the DEM datum);
-* truth pose gains altitude; the road-graph pose path is unchanged;
-* motion is scripted truth, independent of belief, as in M3, until #23;
-* no terrain-aware path planning: legs are straight.
 
 ### #21 — Relative-motion and altitude sensors — own ADR
 

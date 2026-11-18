@@ -18,9 +18,10 @@ The project studies robots that can:
 > OSM/GeoJSON integration, interactive scenario tooling and the M3
 > localization layer (noisy GNSS, outages, dead reckoning, reacquisition) are
 > established. M4 studies navigation without GNSS for off-road robots and
-> drones by matching sensed terrain height against a local elevation map. Its
-> first step, deterministic elevation grids with SRTM import, is implemented
-> and awaiting review.
+> drones by matching sensed terrain height against a local elevation map.
+> Elevation grids with SRTM import are merged; free movement over terrain
+> (ground and air robots on waypoint missions) is implemented and awaiting
+> review.
 
 FleetSyncSim began with **distributed robot-local map knowledge under unreliable
 communication**. It now provides a broader deterministic autonomy test platform
@@ -99,7 +100,9 @@ conditions reproducibly.
 * GNSS outage scenarios with retained, aging localization estimates;
 * opt-in robot-local dead reckoning with deterministic drift and error diagnostics;
 * observable GNSS reacquisition after outages or drift;
-* terrain elevation grids with deterministic SRTM `.hgt` import (M4 #19).
+* terrain elevation grids with deterministic SRTM `.hgt` import (M4 #19);
+* terrain-domain scenarios: ground and air robots following waypoints over
+  real (SRTM) or synthetic terrain (M4 #20).
 
 For exact active implementation scope, see:
 
@@ -216,6 +219,23 @@ dead-reckoning experiment:
 The console's `robot robot_a` command shows both without changing state.
 Configuration and approximation limits are in
 [ADR-019](docs/design_decisions/ADR-019-deterministic-dead-reckoning.md).
+
+---
+
+## Running a terrain scenario
+
+Terrain scenarios declare `"domain": "terrain"` and describe their own terrain
+(an SRTM `.hgt` tile or synthetic hills), so no road map is involved:
+
+```sh
+./build/debug/apps/fleet_sim/fleet_sim \
+    --scenario scenarios/terrain_hills.json --trace terrain.jsonl
+```
+
+A ground rover and a drone follow waypoints over synthetic hills; the trace
+records each robot's true position, heading, altitude, terrain height and
+height above ground every step. The format is described in
+[ADR-023](docs/design_decisions/ADR-023-terrain-domain-motion.md).
 
 ---
 

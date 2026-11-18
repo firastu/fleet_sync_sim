@@ -403,9 +403,47 @@ void parse_events(const map::BaseMap& base, Scenario& scenario,
     }
 }
 
-[[nodiscard]] Scenario parse_scenario(const map::BaseMap& base, const json& root) {
+// The "domain" field (ADR-023): absent means graph.
+[[nodiscard]] ScenarioDomain parse_domain(const json& root) {
     if (!root.is_object()) {
         throw load_error("top-level value must be an object");
+    }
+    const auto domain = root.find("domain");
+    if (domain == root.end()) {
+        return ScenarioDomain::Graph;
+    }
+    if (!domain->is_string()) {
+        throw load_error("'domain' must be a string");
+    }
+    const std::string name = domain->get<std::string>();
+    if (name == "graph") {
+        return ScenarioDomain::Graph;
+    }
+    if (name == "terrain") {
+        return ScenarioDomain::Terrain;
+    }
+    throw load_error(std::format("unknown domain '{}' (supported: graph, terrain)", name));
+}
+
+[[nodiscard]] json read_json_file(const std::filesystem::path& file) {
+    std::ifstream input{file};
+    if (!input) {
+        throw load_error(std::format("cannot open scenario file '{}'", file.string()));
+    }
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    try {
+        return json::parse(buffer.str());
+    } catch (const json::parse_error& error) {
+        throw load_error(
+            std::format("JSON parse error in '{}': {}", file.string(), error.what()));
+    }
+}
+
+[[nodiscard]] Scenario parse_scenario(const map::BaseMap& base, const json& root) {
+    if (parse_domain(root) != ScenarioDomain::Graph) {
+        throw load_error(
+            "this is a terrain-domain scenario; load it with TerrainScenarioLoader");
     }
 
     Scenario scenario;
@@ -499,6 +537,10 @@ void parse_events(const map::BaseMap& base, Scenario& scenario,
 }
 
 }  // namespace
+
+ScenarioDomain ScenarioLoader::domain_of(const std::filesystem::path& file) {
+    return parse_domain(read_json_file(file));
+}
 
 Scenario ScenarioLoader::load(const map::BaseMap& base, const std::filesystem::path& file) {
     std::ifstream input{file};

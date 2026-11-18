@@ -20,29 +20,33 @@ namespace {
 
 }  // namespace
 
-ElevationGrid::ElevationGrid(ElevationGridLayout layout, std::vector<float> heights_m,
-                             ElevationSurface surface, VerticalDatum datum)
-    : layout_{layout}, heights_m_{std::move(heights_m)}, surface_{surface}, datum_{datum} {
-    if (!is_valid_coordinate(layout_.north_west) || !is_valid_coordinate(layout_.south_east)) {
+void ElevationGrid::validate_layout(const ElevationGridLayout& layout) {
+    if (!is_valid_coordinate(layout.north_west) || !is_valid_coordinate(layout.south_east)) {
         throw std::invalid_argument(
             "ElevationGrid: layout corners must be finite and within WGS84 bounds");
     }
-    if (!(layout_.north_west.latitude_deg > layout_.south_east.latitude_deg)) {
+    if (!(layout.north_west.latitude_deg > layout.south_east.latitude_deg)) {
         throw std::invalid_argument(
             "ElevationGrid: north latitude must be greater than south latitude");
     }
-    if (!(layout_.south_east.longitude_deg > layout_.north_west.longitude_deg)) {
+    if (!(layout.south_east.longitude_deg > layout.north_west.longitude_deg)) {
         throw std::invalid_argument(
             "ElevationGrid: east longitude must be greater than west longitude (a grid "
             "never crosses the antimeridian)");
     }
-    if (layout_.rows < 2 || layout_.columns < 2) {
+    if (layout.rows < 2 || layout.columns < 2) {
         throw std::invalid_argument(
             "ElevationGrid: a grid needs at least two rows and two columns");
     }
-    if (layout_.rows > std::numeric_limits<std::size_t>::max() / layout_.columns) {
+    if (layout.rows > std::numeric_limits<std::size_t>::max() / layout.columns) {
         throw std::invalid_argument("ElevationGrid: rows * columns overflows");
     }
+}
+
+ElevationGrid::ElevationGrid(ElevationGridLayout layout, std::vector<float> heights_m,
+                             ElevationSurface surface, VerticalDatum datum)
+    : layout_{layout}, heights_m_{std::move(heights_m)}, surface_{surface}, datum_{datum} {
+    validate_layout(layout_);
     const std::size_t expected = layout_.rows * layout_.columns;
     if (heights_m_.size() != expected) {
         throw std::invalid_argument(std::format(
